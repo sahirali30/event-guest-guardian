@@ -297,6 +297,24 @@ export default function EventRegistration() {
             Thank you for registering. We look forward to seeing you at the event!
           </CardDescription>
         </CardHeader>
+        <CardContent className="text-center space-y-4">
+          <div className="bg-muted/50 p-6 rounded-lg">
+            <p className="text-sm text-muted-foreground mb-4">
+              We will send detailed agenda for the Sept 9th meeting and dinner reception.
+            </p>
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="font-medium">Timing:</span> 5-10p
+              </div>
+              <div>
+                <span className="font-medium">Location:</span> TMC3, Helix Park Houston, TX
+              </div>
+              <div>
+                <span className="font-medium">Hotel:</span> We've reserved a hotel block within walking distance of the venue. Full details and booking information will be shared shortly.
+              </div>
+            </div>
+          </div>
+        </CardContent>
       </Card>
     );
   }
