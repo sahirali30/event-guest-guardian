@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -22,6 +23,9 @@ interface GuestInfo {
 interface RegistrationData {
   id: string;
   registered_at: string;
+  will_attend: boolean;
+  modified_after_initial: boolean;
+  last_modified_at: string;
   invited_guests: {
     name: string;
     email: string;
@@ -42,6 +46,8 @@ export default function EventRegistration() {
   const [emailError, setEmailError] = useState("");
   const [showAdminView, setShowAdminView] = useState(false);
   const [registrations, setRegistrations] = useState<RegistrationData[]>([]);
+  const [existingRegistration, setExistingRegistration] = useState<any>(null);
+  const [willAttend, setWillAttend] = useState(true);
   const { toast } = useToast();
 
   const fetchAllRegistrations = async () => {
@@ -51,6 +57,9 @@ export default function EventRegistration() {
         .select(`
           id,
           registered_at,
+          will_attend,
+          modified_after_initial,
+          last_modified_at,
           invited_guests (
             name,
             email,
@@ -106,18 +115,43 @@ export default function EventRegistration() {
       }
 
       // Check if already registered
-      const { data: existingRegistration } = await supabase
+      const { data: existingReg, error: regError } = await supabase
         .from("registrations")
-        .select("*")
+        .select(`
+          *,
+          guest_registrations (
+            id,
+            guest_name,
+            guest_email
+          )
+        `)
         .eq("invited_guest_id", data.id)
-        .single();
+        .maybeSingle();
 
-      if (existingRegistration) {
-        setEmailError("You have already registered for this event.");
+      if (existingReg) {
+        setExistingRegistration(existingReg);
+        setInvitedGuest(data);
+        setWillAttend(existingReg.will_attend);
+        
+        // Initialize guests array with existing data
+        const existingGuests = existingReg.guest_registrations || [];
+        const guestArray = Array(data.max_guests).fill({ name: "", email: "" });
+        existingGuests.forEach((guest, index) => {
+          if (index < data.max_guests) {
+            guestArray[index] = { name: guest.guest_name, email: guest.guest_email || "" };
+          }
+        });
+        setGuests(guestArray);
+        
+        toast({
+          title: "Registration Found!",
+          description: `You can modify your registration details below.`,
+        });
         return;
       }
 
       setInvitedGuest(data);
+      setExistingRegistration(null);
       // Initialize guest array based on max_guests
       setGuests(Array(data.max_guests).fill({ name: "", email: "" }));
       
@@ -144,41 +178,88 @@ export default function EventRegistration() {
 
     setIsLoading(true);
     try {
-      // Create registration record
-      const { data: registration, error: regError } = await supabase
-        .from("registrations")
-        .insert({ invited_guest_id: invitedGuest.id })
-        .select()
-        .single();
+      if (existingRegistration) {
+        // Update existing registration
+        const { error: updateError } = await supabase
+          .from("registrations")
+          .update({ will_attend: willAttend })
+          .eq("id", existingRegistration.id);
 
-      if (regError) throw regError;
+        if (updateError) throw updateError;
 
-      // Add guest registrations if any
-      const guestsToRegister = guests.filter(guest => guest.name.trim() !== "");
-      if (guestsToRegister.length > 0) {
-        const guestRegistrations = guestsToRegister.map(guest => ({
-          registration_id: registration.id,
-          guest_name: guest.name,
-          guest_email: guest.email || null,
-        }));
-
-        const { error: guestError } = await supabase
+        // Delete existing guest registrations
+        const { error: deleteError } = await supabase
           .from("guest_registrations")
-          .insert(guestRegistrations);
+          .delete()
+          .eq("registration_id", existingRegistration.id);
 
-        if (guestError) throw guestError;
+        if (deleteError) throw deleteError;
+
+        // Add new guest registrations if any
+        const guestsToRegister = guests.filter(guest => guest.name.trim() !== "");
+        if (guestsToRegister.length > 0) {
+          const guestRegistrations = guestsToRegister.map(guest => ({
+            registration_id: existingRegistration.id,
+            guest_name: guest.name,
+            guest_email: guest.email || null,
+          }));
+
+          const { error: guestError } = await supabase
+            .from("guest_registrations")
+            .insert(guestRegistrations);
+
+          if (guestError) throw guestError;
+        }
+
+        setIsRegistered(true);
+        toast({
+          title: "Registration Updated!",
+          description: willAttend 
+            ? `Your registration has been updated${guestsToRegister.length > 0 ? ` with ${guestsToRegister.length} guest${guestsToRegister.length > 1 ? 's' : ''}` : ''}.`
+            : "Your attendance status has been updated to 'Not Attending'.",
+        });
+      } else {
+        // Create new registration
+        const { data: registration, error: regError } = await supabase
+          .from("registrations")
+          .insert({ 
+            invited_guest_id: invitedGuest.id,
+            will_attend: willAttend 
+          })
+          .select()
+          .single();
+
+        if (regError) throw regError;
+
+        // Add guest registrations if any
+        const guestsToRegister = guests.filter(guest => guest.name.trim() !== "");
+        if (guestsToRegister.length > 0) {
+          const guestRegistrations = guestsToRegister.map(guest => ({
+            registration_id: registration.id,
+            guest_name: guest.name,
+            guest_email: guest.email || null,
+          }));
+
+          const { error: guestError } = await supabase
+            .from("guest_registrations")
+            .insert(guestRegistrations);
+
+          if (guestError) throw guestError;
+        }
+
+        setIsRegistered(true);
+        toast({
+          title: "Registration Successful!",
+          description: willAttend 
+            ? `You have been registered for the event${guestsToRegister.length > 0 ? ` with ${guestsToRegister.length} guest${guestsToRegister.length > 1 ? 's' : ''}` : ''}.`
+            : "Your registration has been saved as 'Not Attending'.",
+        });
       }
-
-      setIsRegistered(true);
-      toast({
-        title: "Registration Successful!",
-        description: `You have been registered for the event${guestsToRegister.length > 0 ? ` with ${guestsToRegister.length} guest${guestsToRegister.length > 1 ? 's' : ''}` : ''}.`,
-      });
     } catch (error) {
       console.error("Error registering:", error);
       toast({
         title: "Registration Failed",
-        description: "An error occurred while registering. Please try again.",
+        description: "An error occurred while processing your registration. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -229,8 +310,10 @@ export default function EventRegistration() {
               <TableRow>
                 <TableHead>Invited Guest</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Will Attend</TableHead>
                 <TableHead>Max Guests</TableHead>
                 <TableHead>Registered At</TableHead>
+                <TableHead>Modified</TableHead>
                 <TableHead>Additional Guests</TableHead>
               </TableRow>
             </TableHeader>
@@ -241,9 +324,20 @@ export default function EventRegistration() {
                     {registration.invited_guests.name}
                   </TableCell>
                   <TableCell>{registration.invited_guests.email}</TableCell>
+                  <TableCell>
+                    <span className={registration.will_attend ? "text-green-600" : "text-red-600"}>
+                      {registration.will_attend ? "Yes" : "No"}
+                    </span>
+                  </TableCell>
                   <TableCell>{registration.invited_guests.max_guests}</TableCell>
                   <TableCell>
                     {new Date(registration.registered_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox 
+                      checked={registration.modified_after_initial} 
+                      disabled 
+                    />
                   </TableCell>
                   <TableCell>
                     {registration.guest_registrations.length > 0 ? (
@@ -307,9 +401,23 @@ export default function EventRegistration() {
               <p className="text-sm text-muted-foreground">
                 You are invited to the event and can bring up to {invitedGuest.max_guests} guest{invitedGuest.max_guests !== 1 ? 's' : ''}.
               </p>
+              {existingRegistration && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  You can modify your registration details or attendance status below.
+                </p>
+              )}
             </div>
 
-            {invitedGuest.max_guests > 0 && (
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="will-attend" 
+                checked={willAttend} 
+                onCheckedChange={(checked) => setWillAttend(checked as boolean)}
+              />
+              <Label htmlFor="will-attend">I will attend this event</Label>
+            </div>
+
+            {invitedGuest.max_guests > 0 && willAttend && (
               <div className="space-y-4">
                 <h4 className="font-medium">Guest Information</h4>
                 {guests.map((guest, index) => (
@@ -339,7 +447,7 @@ export default function EventRegistration() {
             )}
 
             <Button onClick={handleRegistration} disabled={isLoading} className="w-full">
-              {isLoading ? "Registering..." : "Complete Registration"}
+              {isLoading ? (existingRegistration ? "Updating..." : "Registering...") : (existingRegistration ? "Update Registration" : "Complete Registration")}
             </Button>
           </div>
         )}
