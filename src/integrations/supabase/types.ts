@@ -14,7 +14,88 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      guest_registrations: {
+        Row: {
+          created_at: string
+          guest_email: string | null
+          guest_name: string
+          id: string
+          registration_id: string
+        }
+        Insert: {
+          created_at?: string
+          guest_email?: string | null
+          guest_name: string
+          id?: string
+          registration_id: string
+        }
+        Update: {
+          created_at?: string
+          guest_email?: string | null
+          guest_name?: string
+          id?: string
+          registration_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_registrations_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "registrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invited_guests: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          max_guests: number
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          max_guests?: number
+          name: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          max_guests?: number
+          name?: string
+        }
+        Relationships: []
+      }
+      registrations: {
+        Row: {
+          id: string
+          invited_guest_id: string
+          registered_at: string
+        }
+        Insert: {
+          id?: string
+          invited_guest_id: string
+          registered_at?: string
+        }
+        Update: {
+          id?: string
+          invited_guest_id?: string
+          registered_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "registrations_invited_guest_id_fkey"
+            columns: ["invited_guest_id"]
+            isOneToOne: false
+            referencedRelation: "invited_guests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
