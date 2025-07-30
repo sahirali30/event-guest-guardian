@@ -8,9 +8,9 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Modi Ventures Brand Colors */
-    --background: 188 30% 98%;
-    --foreground: 222.2 84% 4.9%;
+    /* Modi Ventures Brand Colors - exact match to modivc.com */
+    --background: 191 100% 95%; /* Light teal background like modivc.com */
+    --foreground: 0 0% 20%; /* Dark text for contrast */
 
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -18,17 +18,17 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 188 100% 42%; /* Modi teal */
-    --primary-foreground: 210 40% 98%;
+    --primary: 220 100% 50%; /* Blue from "intersection" text */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 188 20% 95%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 20%;
 
-    --muted: 188 15% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
 
-    --accent: 188 25% 94%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 191 100% 90%;
+    --accent-foreground: 0 0% 20%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
@@ -48,9 +48,9 @@ All colors MUST be HSL.
     --sidebar-border: 188 25% 88%;
     --sidebar-ring: 188 100% 42%;
     
-    /* Modi gradient backgrounds */
-    --gradient-primary: linear-gradient(135deg, hsl(188, 100%, 42%), hsl(190, 100%, 55%));
-    --gradient-bg: linear-gradient(135deg, hsl(188, 30%, 98%), hsl(190, 40%, 96%));
+    /* Modi gradient backgrounds - matching modivc.com */
+    --gradient-primary: linear-gradient(135deg, hsl(220, 100%, 50%), hsl(191, 100%, 60%));
+    --gradient-bg: linear-gradient(135deg, hsl(191, 100%, 95%), hsl(180, 100%, 90%));
   }
 
   .dark {
@@ -99,5 +99,11 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'Source Sans Pro', sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Source Sans Pro', sans-serif;
+    font-weight: 600;
   }
 }

@@ -1,6 +1,5 @@
-// Update this page (the content is just a fallback if you fail to update the page)
-
 import EventRegistration from "@/components/EventRegistration";
+import ModiLogo from "@/assets/modi-logo.svg";
 
 const Index = () => {
   return (
@@ -8,9 +7,9 @@ const Index = () => {
       <div className="container mx-auto">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-6">
-            <div className="flex items-center space-x-3">
-              <div className="text-primary text-3xl font-bold">≋</div>
-              <h1 className="text-2xl font-semibold tracking-wider">MODI VENTURES</h1>
+            <div className="flex items-center space-x-4">
+              <img src={ModiLogo} alt="Modi Ventures Logo" className="w-10 h-10 text-foreground" />
+              <h1 className="text-2xl font-semibold tracking-wider text-foreground">MODI VENTURES</h1>
             </div>
           </div>
           <h2 className="text-4xl font-bold mb-4">

@@ -24,15 +24,14 @@ export default function EventRegistration() {
   const [guests, setGuests] = useState<GuestInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [emailError, setEmailError] = useState("");
   const { toast } = useToast();
 
   const handleEmailCheck = async () => {
+    setEmailError("");
+    
     if (!email) {
-      toast({
-        title: "Error",
-        description: "Please enter your email address",
-        variant: "destructive",
-      });
+      setEmailError("Please enter your email address");
       return;
     }
 
@@ -45,11 +44,7 @@ export default function EventRegistration() {
         .single();
 
       if (error) {
-        toast({
-          title: "Email Not Found",
-          description: "Your email is not on the invitation list for this event.",
-          variant: "destructive",
-        });
+        setEmailError("Your email is not on the invitation list for this event.");
         setInvitedGuest(null);
         return;
       }
@@ -62,11 +57,7 @@ export default function EventRegistration() {
         .single();
 
       if (existingRegistration) {
-        toast({
-          title: "Already Registered",
-          description: "You have already registered for this event.",
-          variant: "destructive",
-        });
+        setEmailError("You have already registered for this event.");
         return;
       }
 
@@ -80,11 +71,7 @@ export default function EventRegistration() {
       });
     } catch (error) {
       console.error("Error checking email:", error);
-      toast({
-        title: "Error",
-        description: "An error occurred while checking your email.",
-        variant: "destructive",
-      });
+      setEmailError("An error occurred while checking your email.");
     } finally {
       setIsLoading(false);
     }
@@ -148,6 +135,7 @@ export default function EventRegistration() {
     setInvitedGuest(null);
     setGuests([]);
     setIsRegistered(false);
+    setEmailError("");
   };
 
   if (isRegistered) {
@@ -187,6 +175,7 @@ export default function EventRegistration() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={!!invitedGuest}
+              className={emailError ? "border-destructive" : ""}
             />
             {!invitedGuest && (
               <Button onClick={handleEmailCheck} disabled={isLoading}>
@@ -194,6 +183,9 @@ export default function EventRegistration() {
               </Button>
             )}
           </div>
+          {emailError && (
+            <p className="text-sm text-destructive mt-1">{emailError}</p>
+          )}
         </div>
 
         {invitedGuest && (
