@@ -18,7 +18,7 @@ const Index = () => {
               className="w-full max-w-4xl mx-auto rounded-lg shadow-lg"
             />
           </div>
-          <p className="text-xl text-muted-foreground">Register for our exclusive live event</p>
+          <p className="text-xl text-muted-foreground">Register for our annual investor meeting and reception</p>
         </div>
         <EventRegistration />
       </div>
