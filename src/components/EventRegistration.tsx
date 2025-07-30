@@ -376,7 +376,7 @@ export default function EventRegistration() {
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader>
-        <CardTitle className="text-2xl">Event Registration</CardTitle>
+        <CardTitle className="text-2xl">MVC Annual Gathering 2025 Registration</CardTitle>
         <CardDescription>
           Please enter your email address to check your invitation status
         </CardDescription>
@@ -425,7 +425,7 @@ export default function EventRegistration() {
                 checked={willAttend} 
                 onCheckedChange={(checked) => setWillAttend(checked as boolean)}
               />
-              <Label htmlFor="will-attend">I will attend this event</Label>
+              <Label htmlFor="will-attend">I will attend this MVC event</Label>
             </div>
 
             {invitedGuest.max_guests > 0 && willAttend && (
