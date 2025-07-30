@@ -12,11 +12,13 @@ const Index = () => {
               <h1 className="text-2xl font-semibold tracking-wider text-foreground">MODI VENTURES</h1>
             </div>
           </div>
-          <h2 className="text-4xl font-bold mb-4">
-            investing at the{" "}
-            <span className="italic text-primary">intersection</span>{" "}
-            of tech and bio
-          </h2>
+          <div className="mb-6">
+            <img 
+              src="/lovable-uploads/a81b69b9-b56b-4d0c-ade7-ddecf01dcc0c.png" 
+              alt="Modi Ventures Annual Gathering" 
+              className="w-full max-w-4xl mx-auto rounded-lg shadow-lg"
+            />
+          </div>
           <p className="text-xl text-muted-foreground">Register for our exclusive live event</p>
         </div>
         <EventRegistration />
