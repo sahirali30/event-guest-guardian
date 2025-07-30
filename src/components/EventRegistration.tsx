@@ -176,6 +176,17 @@ export default function EventRegistration() {
   const handleRegistration = async () => {
     if (!invitedGuest) return;
 
+    // Validate guest information - if name is provided, email is required
+    const invalidGuests = guests.filter(guest => guest.name.trim() !== "" && guest.email.trim() === "");
+    if (invalidGuests.length > 0) {
+      toast({
+        title: "Missing Guest Email",
+        description: "Please provide email addresses for all guests with names.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
       if (existingRegistration) {
@@ -399,7 +410,7 @@ export default function EventRegistration() {
             <div className="p-4 bg-primary/10 rounded-lg">
               <h3 className="font-semibold text-primary">Welcome, {invitedGuest.name}!</h3>
               <p className="text-sm text-muted-foreground">
-                You are invited to the event and can bring up to {invitedGuest.max_guests} guest{invitedGuest.max_guests !== 1 ? 's' : ''}.
+                You are invited to the event{invitedGuest.max_guests > 0 ? ` and can bring up to ${invitedGuest.max_guests} guest${invitedGuest.max_guests !== 1 ? 's' : ''}.` : '.'}
               </p>
               {existingRegistration && (
                 <p className="text-sm text-muted-foreground mt-2">

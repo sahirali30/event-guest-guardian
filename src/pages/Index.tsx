@@ -7,7 +7,7 @@ const Index = () => {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-6">
             <div className="flex items-center space-x-4">
-              <img src="/lovable-uploads/41378f9d-db71-4814-8ea0-835eac6a7179.png" alt="Modi Ventures Logo" className="w-10 h-10" />
+              <img src="/lovable-uploads/41378f9d-db71-4814-8ea0-835eac6a7179.png" alt="Modi Ventures Logo" className="h-10 w-auto" />
               <h1 className="text-2xl font-semibold tracking-wider text-foreground">MODI VENTURES</h1>
             </div>
           </div>
