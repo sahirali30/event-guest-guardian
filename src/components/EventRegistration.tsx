@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,6 +19,20 @@ interface GuestInfo {
   email: string;
 }
 
+interface RegistrationData {
+  id: string;
+  registered_at: string;
+  invited_guests: {
+    name: string;
+    email: string;
+    max_guests: number;
+  };
+  guest_registrations: {
+    guest_name: string;
+    guest_email: string | null;
+  }[];
+}
+
 export default function EventRegistration() {
   const [email, setEmail] = useState("");
   const [invitedGuest, setInvitedGuest] = useState<InvitedGuest | null>(null);
@@ -25,13 +40,54 @@ export default function EventRegistration() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [showAdminView, setShowAdminView] = useState(false);
+  const [registrations, setRegistrations] = useState<RegistrationData[]>([]);
   const { toast } = useToast();
+
+  const fetchAllRegistrations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("registrations")
+        .select(`
+          id,
+          registered_at,
+          invited_guests (
+            name,
+            email,
+            max_guests
+          ),
+          guest_registrations (
+            guest_name,
+            guest_email
+          )
+        `);
+
+      if (error) throw error;
+      setRegistrations(data as RegistrationData[]);
+    } catch (error) {
+      console.error("Error fetching registrations:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load registration data.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleEmailCheck = async () => {
     setEmailError("");
     
     if (!email) {
       setEmailError("Please enter your email address");
+      return;
+    }
+
+    // Check for admin code
+    if (email.toLowerCase() === "admincode@modivc.com") {
+      setIsLoading(true);
+      await fetchAllRegistrations();
+      setShowAdminView(true);
+      setIsLoading(false);
       return;
     }
 
@@ -136,6 +192,8 @@ export default function EventRegistration() {
     setGuests([]);
     setIsRegistered(false);
     setEmailError("");
+    setShowAdminView(false);
+    setRegistrations([]);
   };
 
   if (isRegistered) {
@@ -147,10 +205,64 @@ export default function EventRegistration() {
             Thank you for registering. We look forward to seeing you at the event!
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-center">
-          <Button onClick={resetForm} variant="outline">
-            Register Another Guest
-          </Button>
+      </Card>
+    );
+  }
+
+  if (showAdminView) {
+    return (
+      <Card className="w-full max-w-6xl mx-auto">
+        <CardHeader>
+          <CardTitle className="text-2xl">Admin View - All Registrations</CardTitle>
+          <CardDescription>
+            Complete list of event registrations
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4">
+            <Button onClick={resetForm} variant="outline">
+              Back to Registration
+            </Button>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Invited Guest</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Max Guests</TableHead>
+                <TableHead>Registered At</TableHead>
+                <TableHead>Additional Guests</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {registrations.map((registration) => (
+                <TableRow key={registration.id}>
+                  <TableCell className="font-medium">
+                    {registration.invited_guests.name}
+                  </TableCell>
+                  <TableCell>{registration.invited_guests.email}</TableCell>
+                  <TableCell>{registration.invited_guests.max_guests}</TableCell>
+                  <TableCell>
+                    {new Date(registration.registered_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    {registration.guest_registrations.length > 0 ? (
+                      <div className="space-y-1">
+                        {registration.guest_registrations.map((guest, index) => (
+                          <div key={index} className="text-sm">
+                            {guest.guest_name}
+                            {guest.guest_email && ` (${guest.guest_email})`}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">No additional guests</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     );
