@@ -74,17 +74,26 @@ export type Database = {
         Row: {
           id: string
           invited_guest_id: string
+          last_modified_at: string | null
+          modified_after_initial: boolean | null
           registered_at: string
+          will_attend: boolean | null
         }
         Insert: {
           id?: string
           invited_guest_id: string
+          last_modified_at?: string | null
+          modified_after_initial?: boolean | null
           registered_at?: string
+          will_attend?: boolean | null
         }
         Update: {
           id?: string
           invited_guest_id?: string
+          last_modified_at?: string | null
+          modified_after_initial?: boolean | null
           registered_at?: string
+          will_attend?: boolean | null
         }
         Relationships: [
           {
