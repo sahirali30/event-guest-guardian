@@ -462,6 +462,11 @@ export default function EventRegistration() {
                     <span className="font-medium">Primary Guest:</span> {invitedGuest.name}
                   </p>
                 </div>
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    Please only include additional guest(s) information in the fields below. Do not re-enter your own information.
+                  </p>
+                </div>
                 {guests.map((guest, index) => (
                   <div key={index} className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg">
                     <div className="space-y-2">
