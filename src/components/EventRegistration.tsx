@@ -449,6 +449,14 @@ export default function EventRegistration() {
             {invitedGuest.max_guests > 0 && willAttend && (
               <div className="space-y-4">
                 <h4 className="font-medium">Additional Guest Information</h4>
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                  <p className="text-sm text-destructive font-medium mb-2">
+                    ⚠️ Limited Capacity • Invite Only Event
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    This is an exclusive, invite-only event with limited capacity. Every guest must be registered in advance. No walk-ins will be permitted.
+                  </p>
+                </div>
                 <div className="p-3 bg-muted/30 rounded-lg">
                   <p className="text-sm text-muted-foreground">
                     <span className="font-medium">Primary Guest:</span> {invitedGuest.name}
