@@ -13,7 +13,7 @@ const Index = () => {
           </div>
           <div className="mb-6">
             <img 
-              src="/lovable-uploads/a81b69b9-b56b-4d0c-ade7-ddecf01dcc0c.png" 
+              src="/lovable-uploads/ca7e1300-c9e4-45fc-8ecf-5dc23634b729.png" 
               alt="Modi Ventures Annual Gathering" 
               className="w-full max-w-4xl mx-auto rounded-lg shadow-lg"
             />
