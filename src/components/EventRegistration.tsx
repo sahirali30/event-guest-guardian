@@ -454,7 +454,7 @@ export default function EventRegistration() {
                     ⚠️ Limited Capacity • Invite Only Event
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    This is an exclusive, invite-only event with limited capacity. Every guest must be registered in advance. No walk-ins will be permitted.
+                    This is an exclusive, invite-only event with limited capacity. Every guest must be registered in advance.
                   </p>
                 </div>
                 <div className="p-3 bg-muted/30 rounded-lg">
