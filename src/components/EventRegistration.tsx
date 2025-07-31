@@ -449,6 +449,11 @@ export default function EventRegistration() {
             {invitedGuest.max_guests > 0 && willAttend && (
               <div className="space-y-4">
                 <h4 className="font-medium">Additional Guest Information</h4>
+                <div className="p-3 bg-muted/30 rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium">Primary Guest:</span> {invitedGuest.name}
+                  </p>
+                </div>
                 {guests.map((guest, index) => (
                   <div key={index} className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg">
                     <div className="space-y-2">
@@ -472,11 +477,6 @@ export default function EventRegistration() {
                     </div>
                   </div>
                 ))}
-                <div className="mt-4 p-3 bg-muted/30 rounded-lg">
-                  <p className="text-sm text-muted-foreground">
-                    <span className="font-medium">Primary Guest:</span> {invitedGuest.name}
-                  </p>
-                </div>
               </div>
             )}
 
