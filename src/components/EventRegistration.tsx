@@ -472,6 +472,11 @@ export default function EventRegistration() {
                     </div>
                   </div>
                 ))}
+                <div className="mt-4 p-3 bg-muted/30 rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium">Primary Guest:</span> {invitedGuest.name}
+                  </p>
+                </div>
               </div>
             )}
 
