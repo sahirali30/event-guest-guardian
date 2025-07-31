@@ -449,8 +449,8 @@ export default function EventRegistration() {
             {invitedGuest.max_guests > 0 && willAttend && (
               <div className="space-y-4">
                 <h4 className="font-medium">Additional Guest Information</h4>
-                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-                  <p className="text-sm text-destructive font-medium mb-2">
+                <div className="p-3 bg-muted/30 rounded-lg">
+                  <p className="text-sm font-medium mb-2">
                     ⚠️ Limited Capacity • Invite Only Event
                   </p>
                   <p className="text-sm text-muted-foreground">
