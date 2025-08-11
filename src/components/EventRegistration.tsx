@@ -45,7 +45,9 @@ export default function EventRegistration() {
   const [isRegistered, setIsRegistered] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [showAdminView, setShowAdminView] = useState(false);
+  const [showCompleteListView, setShowCompleteListView] = useState(false);
   const [registrations, setRegistrations] = useState<RegistrationData[]>([]);
+  const [completeAttendeeList, setCompleteAttendeeList] = useState<any[]>([]);
   const [existingRegistration, setExistingRegistration] = useState<any>(null);
   const [willAttend, setWillAttend] = useState(true);
   const { toast } = useToast();
@@ -83,6 +85,63 @@ export default function EventRegistration() {
     }
   };
 
+  const fetchCompleteAttendeeList = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("registrations")
+        .select(`
+          id,
+          registered_at,
+          will_attend,
+          invited_guests (
+            name,
+            email
+          ),
+          guest_registrations (
+            guest_name,
+            guest_email
+          )
+        `)
+        .eq('will_attend', true);
+
+      if (error) throw error;
+      
+      // Create flat list of all attendees
+      const attendeeList: any[] = [];
+      
+      data.forEach((registration) => {
+        // Add primary guest
+        attendeeList.push({
+          name: registration.invited_guests.name,
+          email: registration.invited_guests.email,
+          registered_on: registration.registered_at,
+          primary_guest: registration.invited_guests.name,
+          is_primary: true
+        });
+        
+        // Add additional guests
+        registration.guest_registrations.forEach((guest) => {
+          attendeeList.push({
+            name: guest.guest_name,
+            email: guest.guest_email || 'Not provided',
+            registered_on: registration.registered_at,
+            primary_guest: registration.invited_guests.name,
+            is_primary: false
+          });
+        });
+      });
+      
+      setCompleteAttendeeList(attendeeList);
+    } catch (error) {
+      console.error("Error fetching complete attendee list:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load attendee data.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleEmailCheck = async () => {
     setEmailError("");
     
@@ -96,6 +155,15 @@ export default function EventRegistration() {
       setIsLoading(true);
       await fetchAllRegistrations();
       setShowAdminView(true);
+      setIsLoading(false);
+      return;
+    }
+
+    // Check for complete list admin code
+    if (email.toLowerCase() === "completelist@modivc.com") {
+      setIsLoading(true);
+      await fetchCompleteAttendeeList();
+      setShowCompleteListView(true);
       setIsLoading(false);
       return;
     }
@@ -285,7 +353,9 @@ export default function EventRegistration() {
     setIsRegistered(false);
     setEmailError("");
     setShowAdminView(false);
+    setShowCompleteListView(false);
     setRegistrations([]);
+    setCompleteAttendeeList([]);
   };
 
   if (isRegistered) {
@@ -386,6 +456,54 @@ export default function EventRegistration() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (showCompleteListView) {
+    return (
+      <Card className="w-full max-w-6xl mx-auto">
+        <CardHeader>
+          <CardTitle className="text-2xl">Complete Attendee List</CardTitle>
+          <CardDescription>
+            All confirmed attendees including guests
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4">
+            <Button onClick={resetForm} variant="outline">
+              Back to Registration
+            </Button>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Registered On</TableHead>
+                <TableHead>Primary Guest</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {completeAttendeeList.map((attendee, index) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">
+                    {attendee.name}
+                    {attendee.is_primary && <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-1 rounded">Primary</span>}
+                  </TableCell>
+                  <TableCell>{attendee.email}</TableCell>
+                  <TableCell>
+                    {new Date(attendee.registered_on).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>{attendee.primary_guest}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="mt-4 text-sm text-muted-foreground">
+            Total Attendees: {completeAttendeeList.length}
+          </div>
         </CardContent>
       </Card>
     );
