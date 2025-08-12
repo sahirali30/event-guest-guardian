@@ -581,8 +581,8 @@ export default function EventRegistration() {
     );
   }
 
-  // Show RSVP closed message if RSVP is closed and no invited guest is set
-  if (rsvpSettings && !rsvpSettings.is_open && !invitedGuest && email && !email.includes("@modivc.com")) {
+  // Show RSVP closed message immediately if RSVP is closed (before any form interaction)
+  if (rsvpSettings && !rsvpSettings.is_open) {
     return (
       <Card className="w-full max-w-2xl mx-auto">
         <CardHeader className="text-center">
@@ -600,9 +600,6 @@ export default function EventRegistration() {
               Please reach out to <strong>Sahir</strong> or <strong>Amir</strong> for further assistance.
             </p>
           </div>
-          <Button onClick={resetForm} variant="outline">
-            Back to Registration
-          </Button>
         </CardContent>
       </Card>
     );
