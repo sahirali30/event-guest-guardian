@@ -50,7 +50,55 @@ export default function EventRegistration() {
   const [completeAttendeeList, setCompleteAttendeeList] = useState<any[]>([]);
   const [existingRegistration, setExistingRegistration] = useState<any>(null);
   const [willAttend, setWillAttend] = useState(true);
+  const [rsvpSettings, setRsvpSettings] = useState<{ is_open: boolean } | null>(null);
+  const [showAdminToggle, setShowAdminToggle] = useState(false);
   const { toast } = useToast();
+
+  const fetchRsvpSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("rsvp_settings")
+        .select("is_open")
+        .single();
+
+      if (error) throw error;
+      setRsvpSettings(data);
+    } catch (error) {
+      console.error("Error fetching RSVP settings:", error);
+      // If no settings found, default to open
+      setRsvpSettings({ is_open: true });
+    }
+  };
+
+  const toggleRsvpStatus = async () => {
+    if (!rsvpSettings) return;
+    
+    try {
+      const { error } = await supabase
+        .from("rsvp_settings")
+        .update({ is_open: !rsvpSettings.is_open })
+        .eq("id", (await supabase.from("rsvp_settings").select("id").single()).data?.id);
+
+      if (error) throw error;
+      
+      setRsvpSettings({ is_open: !rsvpSettings.is_open });
+      toast({
+        title: "RSVP Status Updated",
+        description: `RSVP is now ${!rsvpSettings.is_open ? 'open' : 'closed'}.`,
+      });
+    } catch (error) {
+      console.error("Error updating RSVP status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update RSVP status.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  useEffect(() => {
+    fetchRsvpSettings();
+  }, []);
 
   const fetchAllRegistrations = async () => {
     try {
@@ -155,6 +203,7 @@ export default function EventRegistration() {
       setIsLoading(true);
       await fetchAllRegistrations();
       setShowAdminView(true);
+      setShowAdminToggle(true);
       setIsLoading(false);
       return;
     }
@@ -165,6 +214,12 @@ export default function EventRegistration() {
       await fetchCompleteAttendeeList();
       setShowCompleteListView(true);
       setIsLoading(false);
+      return;
+    }
+
+    // Check if RSVP is closed for regular users
+    if (rsvpSettings && !rsvpSettings.is_open) {
+      setEmailError("");
       return;
     }
 
@@ -399,10 +454,27 @@ export default function EventRegistration() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
+          <div className="mb-4 flex justify-between items-center">
             <Button onClick={resetForm} variant="outline">
               Back to Registration
             </Button>
+            {showAdminToggle && rsvpSettings && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">
+                  RSVP Status: 
+                  <span className={rsvpSettings.is_open ? "text-green-600 ml-1" : "text-red-600 ml-1"}>
+                    {rsvpSettings.is_open ? "Open" : "Closed"}
+                  </span>
+                </span>
+                <Button 
+                  onClick={toggleRsvpStatus}
+                  variant={rsvpSettings.is_open ? "destructive" : "default"}
+                  size="sm"
+                >
+                  {rsvpSettings.is_open ? "Close RSVP" : "Open RSVP"}
+                </Button>
+              </div>
+            )}
           </div>
           <Table>
             <TableHeader>
@@ -504,6 +576,33 @@ export default function EventRegistration() {
           <div className="mt-4 text-sm text-muted-foreground">
             Total Attendees: {completeAttendeeList.length}
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Show RSVP closed message if RSVP is closed and no invited guest is set
+  if (rsvpSettings && !rsvpSettings.is_open && !invitedGuest && email && !email.includes("@modivc.com")) {
+    return (
+      <Card className="w-full max-w-2xl mx-auto">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl text-destructive">RSVP Has Now Closed</CardTitle>
+          <CardDescription>
+            Thank you for your interest in the MVC Annual Gathering 2025
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-center space-y-4">
+          <div className="bg-muted/50 p-6 rounded-lg">
+            <p className="text-muted-foreground mb-4">
+              Registration for this event is now closed.
+            </p>
+            <p className="text-muted-foreground">
+              Please reach out to <strong>Sahir</strong> or <strong>Amir</strong> for further assistance.
+            </p>
+          </div>
+          <Button onClick={resetForm} variant="outline">
+            Back to Registration
+          </Button>
         </CardContent>
       </Card>
     );
