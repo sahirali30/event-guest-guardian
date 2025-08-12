@@ -105,6 +105,27 @@ export type Database = {
           },
         ]
       }
+      rsvp_settings: {
+        Row: {
+          created_at: string
+          id: string
+          is_open: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_open?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_open?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
