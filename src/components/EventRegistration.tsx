@@ -102,6 +102,12 @@ export default function EventRegistration() {
 
   const fetchAllRegistrations = async () => {
     try {
+      // Set admin context for registration data access
+      await supabase.rpc('set_config', {
+        setting_name: 'app.current_user_email',
+        setting_value: 'admincode@modivc.com'
+      });
+
       const { data, error } = await supabase
         .from("registrations")
         .select(`
@@ -135,6 +141,12 @@ export default function EventRegistration() {
 
   const fetchCompleteAttendeeList = async () => {
     try {
+      // Set admin context for attendee data access
+      await supabase.rpc('set_config', {
+        setting_name: 'app.current_user_email',
+        setting_value: 'completelist@modivc.com'
+      });
+
       const { data, error } = await supabase
         .from("registrations")
         .select(`
