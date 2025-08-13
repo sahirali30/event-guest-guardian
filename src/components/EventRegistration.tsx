@@ -51,22 +51,28 @@ export default function EventRegistration() {
   const [existingRegistration, setExistingRegistration] = useState<any>(null);
   const [willAttend, setWillAttend] = useState(true);
   const [rsvpSettings, setRsvpSettings] = useState<{ is_open: boolean } | null>(null);
+  const [isLoadingRsvpSettings, setIsLoadingRsvpSettings] = useState(true);
   const [showAdminToggle, setShowAdminToggle] = useState(false);
   const { toast } = useToast();
 
   const fetchRsvpSettings = async () => {
     try {
+      setIsLoadingRsvpSettings(true);
       const { data, error } = await supabase
         .from("rsvp_settings")
         .select("is_open")
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
-      setRsvpSettings(data);
+      
+      // If no settings found, default to open
+      setRsvpSettings(data || { is_open: true });
     } catch (error) {
       console.error("Error fetching RSVP settings:", error);
       // If no settings found, default to open
       setRsvpSettings({ is_open: true });
+    } finally {
+      setIsLoadingRsvpSettings(false);
     }
   };
 
@@ -597,6 +603,26 @@ export default function EventRegistration() {
           </Table>
           <div className="mt-4 text-sm text-muted-foreground">
             Total Attendees: {completeAttendeeList.length}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Show loading state while fetching RSVP settings
+  if (isLoadingRsvpSettings) {
+    return (
+      <Card className="w-full max-w-2xl mx-auto">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Loading...</CardTitle>
+          <CardDescription>
+            Checking event status
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-center">
+          <div className="animate-pulse space-y-4">
+            <div className="h-4 bg-muted rounded w-3/4 mx-auto"></div>
+            <div className="h-4 bg-muted rounded w-1/2 mx-auto"></div>
           </div>
         </CardContent>
       </Card>
