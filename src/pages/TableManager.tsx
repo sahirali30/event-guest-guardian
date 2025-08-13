@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -37,6 +38,7 @@ interface Guest {
 }
 
 const TableManager = () => {
+  const { toast: showToast } = useToast();
   const [tables, setTables] = useState<Table[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -341,6 +343,11 @@ const TableManager = () => {
       }
     } catch (error) {
       console.error('Error saving table to database:', error);
+      showToast({
+        title: "Save Error", 
+        description: `Failed to save table: ${error.message}`,
+        variant: "destructive"
+      });
     }
   };
 
