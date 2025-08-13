@@ -333,17 +333,21 @@ const TableManager = () => {
     };
   };
 
+  const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null);
+  const [pendingDragTable, setPendingDragTable] = useState<string | null>(null);
+
   const handleMouseDown = (e: React.MouseEvent, tableId: string) => {
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
 
     setSelectedTable(tableId);
-    setDraggedTable(tableId);
+    setPendingDragTable(tableId);
     
     const rect = canvasRef.current?.getBoundingClientRect();
     if (rect) {
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
+      setDragStartPosition({ x: mouseX, y: mouseY });
       setDragOffset({
         x: mouseX / zoom - table.x,
         y: mouseY / zoom - table.y,
@@ -352,12 +356,27 @@ const TableManager = () => {
   };
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!draggedTable) return;
-
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (rect) {
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+    if (!rect) return;
+
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Check if we should start dragging for a pending table
+    if (pendingDragTable && !draggedTable && dragStartPosition) {
+      const distance = Math.sqrt(
+        Math.pow(mouseX - dragStartPosition.x, 2) + 
+        Math.pow(mouseY - dragStartPosition.y, 2)
+      );
+      
+      // Start dragging if mouse moved more than 5 pixels
+      if (distance > 5) {
+        setDraggedTable(pendingDragTable);
+      }
+    }
+
+    // Continue dragging if already dragging
+    if (draggedTable) {
       const newX = mouseX / zoom - dragOffset.x;
       const newY = mouseY / zoom - dragOffset.y;
 
@@ -367,7 +386,7 @@ const TableManager = () => {
           : table
       ));
     }
-  }, [draggedTable, dragOffset, zoom]);
+  }, [draggedTable, pendingDragTable, dragStartPosition, dragOffset, zoom]);
 
   const handleMouseUp = useCallback(async () => {
     if (draggedTable) {
@@ -377,6 +396,8 @@ const TableManager = () => {
       }
     }
     setDraggedTable(null);
+    setPendingDragTable(null);
+    setDragStartPosition(null);
   }, [draggedTable, tables]);
 
   useEffect(() => {
