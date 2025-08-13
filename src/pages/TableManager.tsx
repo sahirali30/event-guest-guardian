@@ -47,14 +47,56 @@ const TableManager = () => {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Initialize tables in layout similar to the image (3 rows: 10/10/4)
+  // Load tables from database or initialize default layout
   useEffect(() => {
-    const initializeTables = () => {
+    const loadTables = async () => {
+      try {
+        // First, try to load from database
+        const { data: tableConfigs, error } = await supabase
+          .from('table_configurations')
+          .select(`
+            *,
+            seat_assignments(*)
+          `)
+          .order('table_number');
+
+        if (!error && tableConfigs && tableConfigs.length > 0) {
+          // Convert database data to table format
+          const loadedTables: Table[] = tableConfigs.map(config => ({
+            id: `table-${config.table_number}`,
+            number: config.table_number,
+            label: config.label,
+            x: Number(config.x),
+            y: Number(config.y),
+            seats: config.seat_assignments.map((assignment: any) => ({
+              id: `seat-${config.table_number}-${assignment.seat_index}`,
+              angle: Number(assignment.seat_angle),
+              guestName: assignment.guest_name || undefined,
+              tag: assignment.tag || undefined,
+              note: assignment.note || undefined,
+            }))
+          }));
+          setTables(loadedTables);
+        } else {
+          // Initialize default layout if no data in database
+          initializeDefaultTables();
+        }
+      } catch (error) {
+        console.error('Error loading tables:', error);
+        // Fallback to localStorage
+        const savedTables = localStorage.getItem('tableSeatLayout');
+        if (savedTables) {
+          setTables(JSON.parse(savedTables));
+        } else {
+          initializeDefaultTables();
+        }
+      }
+    };
+
+    const initializeDefaultTables = async () => {
       const initialTables: Table[] = [];
       const canvasWidth = 1200;
       const canvasHeight = 800;
-      const tableRadius = 80;
-      const tableSpacing = 160;
       
       // Row 1: 10 tables
       for (let i = 0; i < 10; i++) {
@@ -78,14 +120,11 @@ const TableManager = () => {
       }
       
       setTables(initialTables);
+      // Save initial layout to database
+      await saveTablesToDatabase(initialTables);
     };
 
-    const savedTables = localStorage.getItem('tableSeatLayout');
-    if (savedTables) {
-      setTables(JSON.parse(savedTables));
-    } else {
-      initializeTables();
-    }
+    loadTables();
   }, []);
 
   // Load both invited guests and their registered guests from Supabase
@@ -136,12 +175,106 @@ const TableManager = () => {
     loadGuests();
   }, []);
 
-  // Auto-save to localStorage
+  // Keep localStorage as backup but database is primary
   useEffect(() => {
     if (tables.length > 0) {
       localStorage.setItem('tableSeatLayout', JSON.stringify(tables));
     }
   }, [tables]);
+
+  // Database functions
+  const saveTablesToDatabase = async (tablesToSave: Table[]) => {
+    try {
+      // Clear existing data
+      await supabase.from('table_configurations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      
+      // Save table configurations
+      for (const table of tablesToSave) {
+        const { data: tableConfig, error: tableError } = await supabase
+          .from('table_configurations')
+          .insert({
+            table_number: table.number,
+            label: table.label,
+            x: table.x,
+            y: table.y,
+            seat_count: table.seats.length
+          })
+          .select()
+          .single();
+
+        if (tableError) {
+          console.error('Error saving table:', tableError);
+          continue;
+        }
+
+        // Save seat assignments
+        for (let i = 0; i < table.seats.length; i++) {
+          const seat = table.seats[i];
+          if (seat.guestName || seat.tag || seat.note) {
+            await supabase
+              .from('seat_assignments')
+              .insert({
+                table_configuration_id: tableConfig.id,
+                seat_index: i,
+                seat_angle: seat.angle,
+                guest_name: seat.guestName || null,
+                tag: seat.tag || null,
+                note: seat.note || null
+              });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error saving to database:', error);
+    }
+  };
+
+  const saveTableToDatabase = async (table: Table) => {
+    try {
+      // Save or update table configuration
+      const { data: tableConfig, error: tableError } = await supabase
+        .from('table_configurations')
+        .upsert({
+          table_number: table.number,
+          label: table.label,
+          x: table.x,
+          y: table.y,
+          seat_count: table.seats.length
+        }, { 
+          onConflict: 'table_number'
+        })
+        .select()
+        .single();
+
+      if (tableError) {
+        console.error('Error saving table:', tableError);
+        return;
+      }
+
+      // Clear existing seat assignments for this table
+      await supabase
+        .from('seat_assignments')
+        .delete()
+        .eq('table_configuration_id', tableConfig.id);
+
+      // Save seat assignments
+      for (let i = 0; i < table.seats.length; i++) {
+        const seat = table.seats[i];
+        await supabase
+          .from('seat_assignments')
+          .insert({
+            table_configuration_id: tableConfig.id,
+            seat_index: i,
+            seat_angle: seat.angle,
+            guest_name: seat.guestName || null,
+            tag: seat.tag || null,
+            note: seat.note || null
+          });
+      }
+    } catch (error) {
+      console.error('Error saving table to database:', error);
+    }
+  };
 
   const createTable = (number: number, x: number, y: number): Table => {
     const seats: Seat[] = [];
@@ -198,9 +331,15 @@ const TableManager = () => {
     }
   }, [draggedTable, dragOffset, zoom]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback(async () => {
+    if (draggedTable) {
+      const draggedTableData = tables.find(t => t.id === draggedTable);
+      if (draggedTableData) {
+        await saveTableToDatabase(draggedTableData);
+      }
+    }
     setDraggedTable(null);
-  }, []);
+  }, [draggedTable, tables]);
 
   useEffect(() => {
     document.addEventListener('mousemove', handleMouseMove);
@@ -211,8 +350,8 @@ const TableManager = () => {
     };
   }, [handleMouseMove, handleMouseUp]);
 
-  const addSeat = (tableId: string) => {
-    setTables(prev => prev.map(table => {
+  const addSeat = async (tableId: string) => {
+    const updatedTables = tables.map(table => {
       if (table.id === tableId && table.seats.length < 14) {
         const newSeats = [...table.seats];
         const newSeatId = `seat-${table.number}-${newSeats.length}`;
@@ -229,11 +368,19 @@ const TableManager = () => {
         return { ...table, seats: newSeats };
       }
       return table;
-    }));
+    });
+    
+    setTables(updatedTables);
+    
+    // Save to database
+    const updatedTable = updatedTables.find(t => t.id === tableId);
+    if (updatedTable) {
+      await saveTableToDatabase(updatedTable);
+    }
   };
 
-  const removeSeat = (tableId: string) => {
-    setTables(prev => prev.map(table => {
+  const removeSeat = async (tableId: string) => {
+    const updatedTables = tables.map(table => {
       if (table.id === tableId && table.seats.length > 1) {
         const newSeats = table.seats.slice(0, -1);
         
@@ -245,24 +392,45 @@ const TableManager = () => {
         return { ...table, seats: newSeats };
       }
       return table;
-    }));
+    });
+    
+    setTables(updatedTables);
+    
+    // Save to database
+    const updatedTable = updatedTables.find(t => t.id === tableId);
+    if (updatedTable) {
+      await saveTableToDatabase(updatedTable);
+    }
   };
 
-  const addTable = () => {
+  const addTable = async () => {
     const maxNumber = Math.max(...tables.map(t => t.number));
     const newTable = createTable(maxNumber + 1, 600, 400);
-    setTables(prev => [...prev, newTable]);
+    const updatedTables = [...tables, newTable];
+    setTables(updatedTables);
+    
+    // Save to database
+    await saveTableToDatabase(newTable);
     toast.success('Table added');
   };
 
-  const deleteTable = (tableId: string) => {
+  const deleteTable = async (tableId: string) => {
+    const tableToDelete = tables.find(t => t.id === tableId);
+    if (tableToDelete) {
+      // Delete from database
+      await supabase
+        .from('table_configurations')
+        .delete()
+        .eq('table_number', tableToDelete.number);
+    }
+    
     setTables(prev => prev.filter(t => t.id !== tableId));
     setSelectedTable(null);
     toast.success('Table deleted');
   };
 
-  const assignSeat = (tableId: string, seatId: string, guestName: string, tag?: string, note?: string) => {
-    setTables(prev => prev.map(table => {
+  const assignSeat = async (tableId: string, seatId: string, guestName: string, tag?: string, note?: string) => {
+    const updatedTables = tables.map(table => {
       if (table.id === tableId) {
         return {
           ...table,
@@ -274,7 +442,16 @@ const TableManager = () => {
         };
       }
       return table;
-    }));
+    });
+    
+    setTables(updatedTables);
+    
+    // Save to database
+    const updatedTable = updatedTables.find(t => t.id === tableId);
+    if (updatedTable) {
+      await saveTableToDatabase(updatedTable);
+    }
+    
     setSelectedSeat(null);
     toast.success('Seat assigned');
   };
@@ -315,10 +492,13 @@ const TableManager = () => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const imported = JSON.parse(e.target?.result as string);
           setTables(imported);
+          
+          // Save imported layout to database
+          await saveTablesToDatabase(imported);
           toast.success('Layout imported');
         } catch {
           toast.error('Invalid file format');
