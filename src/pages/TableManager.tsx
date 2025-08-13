@@ -62,20 +62,29 @@ const TableManager = () => {
 
         if (!error && tableConfigs && tableConfigs.length > 0) {
           // Convert database data to table format
-          const loadedTables: Table[] = tableConfigs.map(config => ({
-            id: `table-${config.table_number}`,
-            number: config.table_number,
-            label: config.label,
-            x: Number(config.x),
-            y: Number(config.y),
-            seats: config.seat_assignments.map((assignment: any) => ({
-              id: `seat-${config.table_number}-${assignment.seat_index}`,
-              angle: Number(assignment.seat_angle),
-              guestName: assignment.guest_name || undefined,
-              tag: assignment.tag || undefined,
-              note: assignment.note || undefined,
-            }))
-          }));
+          const loadedTables: Table[] = tableConfigs.map(config => {
+            // Create all seats based on seat_count
+            const seats: Seat[] = [];
+            for (let i = 0; i < config.seat_count; i++) {
+              const assignment = config.seat_assignments.find((a: any) => a.seat_index === i);
+              seats.push({
+                id: `seat-${config.table_number}-${i}`,
+                angle: (i * 360) / config.seat_count,
+                guestName: assignment?.guest_name || undefined,
+                tag: assignment?.tag || undefined,
+                note: assignment?.note || undefined,
+              });
+            }
+            
+            return {
+              id: `table-${config.table_number}`,
+              number: config.table_number,
+              label: config.label,
+              x: Number(config.x),
+              y: Number(config.y),
+              seats
+            };
+          });
           setTables(loadedTables);
         } else {
           // Initialize default layout if no data in database
@@ -231,31 +240,60 @@ const TableManager = () => {
 
   const saveTableToDatabase = async (table: Table) => {
     try {
-      // Save or update table configuration
-      const { data: tableConfig, error: tableError } = await supabase
+      // Check if table exists
+      const { data: existingTable } = await supabase
         .from('table_configurations')
-        .upsert({
-          table_number: table.number,
-          label: table.label,
-          x: table.x,
-          y: table.y,
-          seat_count: table.seats.length
-        }, { 
-          onConflict: 'table_number'
-        })
-        .select()
+        .select('id')
+        .eq('table_number', table.number)
         .single();
 
-      if (tableError) {
-        console.error('Error saving table:', tableError);
-        return;
+      let tableConfigId: string;
+
+      if (existingTable) {
+        // Update existing table
+        const { data: updatedTable, error: updateError } = await supabase
+          .from('table_configurations')
+          .update({
+            label: table.label,
+            x: table.x,
+            y: table.y,
+            seat_count: table.seats.length
+          })
+          .eq('table_number', table.number)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('Error updating table:', updateError);
+          return;
+        }
+        tableConfigId = updatedTable.id;
+      } else {
+        // Insert new table
+        const { data: newTable, error: insertError } = await supabase
+          .from('table_configurations')
+          .insert({
+            table_number: table.number,
+            label: table.label,
+            x: table.x,
+            y: table.y,
+            seat_count: table.seats.length
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Error inserting table:', insertError);
+          return;
+        }
+        tableConfigId = newTable.id;
       }
 
       // Clear existing seat assignments for this table
       await supabase
         .from('seat_assignments')
         .delete()
-        .eq('table_configuration_id', tableConfig.id);
+        .eq('table_configuration_id', tableConfigId);
 
       // Save seat assignments
       for (let i = 0; i < table.seats.length; i++) {
@@ -263,7 +301,7 @@ const TableManager = () => {
         await supabase
           .from('seat_assignments')
           .insert({
-            table_configuration_id: tableConfig.id,
+            table_configuration_id: tableConfigId,
             seat_index: i,
             seat_angle: seat.angle,
             guest_name: seat.guestName || null,
