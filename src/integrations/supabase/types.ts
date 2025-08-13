@@ -126,6 +126,83 @@ export type Database = {
         }
         Relationships: []
       }
+      seat_assignments: {
+        Row: {
+          created_at: string
+          guest_name: string | null
+          id: string
+          note: string | null
+          seat_angle: number
+          seat_index: number
+          table_configuration_id: string
+          tag: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          guest_name?: string | null
+          id?: string
+          note?: string | null
+          seat_angle: number
+          seat_index: number
+          table_configuration_id: string
+          tag?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          guest_name?: string | null
+          id?: string
+          note?: string | null
+          seat_angle?: number
+          seat_index?: number
+          table_configuration_id?: string
+          tag?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seat_assignments_table_configuration_id_fkey"
+            columns: ["table_configuration_id"]
+            isOneToOne: false
+            referencedRelation: "table_configurations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      table_configurations: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          seat_count: number
+          table_number: number
+          updated_at: string
+          x: number
+          y: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          seat_count?: number
+          table_number: number
+          updated_at?: string
+          x: number
+          y: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          seat_count?: number
+          table_number?: number
+          updated_at?: string
+          x?: number
+          y?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
