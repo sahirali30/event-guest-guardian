@@ -226,7 +226,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_valid_guest_or_admin: {
+        Args: { check_email: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
