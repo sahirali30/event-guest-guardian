@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import PasswordProtection from '@/components/PasswordProtection';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -343,7 +344,8 @@ const TableManager = () => {
   const selectedTableData = selectedTable ? tables.find(t => t.id === selectedTable) : null;
 
   return (
-    <div className="min-h-screen bg-background">
+    <PasswordProtection>
+      <div className="min-h-screen bg-background">
       <div className="border-b bg-card">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
@@ -556,7 +558,8 @@ const TableManager = () => {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </PasswordProtection>
   );
 };
 

@@ -1,14 +1,23 @@
 import EventRegistration from "@/components/EventRegistration";
 import { Button } from "@/components/ui/button";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const Index = () => {
+  const navigate = useNavigate();
+
+  const handleLogoClick = () => {
+    navigate('/tables');
+  };
+
   return (
     <div className="min-h-screen py-8 px-4" style={{background: 'var(--gradient-bg)'}}>
       <div className="container mx-auto">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-6">
-            <div className="flex items-center space-x-4">
+            <div 
+              className="flex items-center space-x-4 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={handleLogoClick}
+            >
               <img src="/lovable-uploads/41378f9d-db71-4814-8ea0-835eac6a7179.png" alt="Modi Ventures Logo" className="h-10 w-auto" />
               <h1 className="text-2xl font-semibold tracking-wider text-foreground">MODI VENTURES</h1>
             </div>
