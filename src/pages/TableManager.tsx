@@ -536,6 +536,8 @@ const TableManager = () => {
   };
 
   const assignSeat = async (tableId: string, seatId: string, guestName: string, tag?: string, note?: string) => {
+    console.log('assignSeat called with:', { tableId, seatId, guestName, tag, note });
+    
     const updatedTables = tables.map(table => {
       if (table.id === tableId) {
         return {
@@ -550,12 +552,19 @@ const TableManager = () => {
       return table;
     });
     
+    console.log('Updated tables:', updatedTables);
     setTables(updatedTables);
     
     // Save to database
     const updatedTable = updatedTables.find(t => t.id === tableId);
+    console.log('Found updated table for saving:', updatedTable);
+    
     if (updatedTable) {
+      console.log('Starting save to database...');
       await saveTableToDatabase(updatedTable);
+      console.log('Save completed');
+    } else {
+      console.error('Could not find updated table for saving');
     }
     
     setSelectedSeat(null);
