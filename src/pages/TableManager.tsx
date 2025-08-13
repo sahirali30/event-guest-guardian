@@ -145,7 +145,14 @@ const TableManager = () => {
   // Load both invited guests and their registered guests from Supabase
   useEffect(() => {
     const loadGuests = async () => {
-      const { data, error } = await supabase
+      try {
+        // Set admin context for guest data access
+        await supabase.rpc('set_config', {
+          setting_name: 'app.current_user_email',
+          setting_value: 'admincode@modivc.com'
+        });
+
+        const { data, error } = await supabase
         .from('registrations')
         .select(`
           invited_guest_id,
@@ -185,7 +192,12 @@ const TableManager = () => {
         // Sort guests by name
         combinedGuests.sort((a, b) => a.name.localeCompare(b.name));
         setGuests(combinedGuests);
+      } else {
+        console.error('Error loading guests:', error);
       }
+    } catch (error) {
+      console.error('Error loading guests:', error);
+    }
     };
     loadGuests();
   }, []);
