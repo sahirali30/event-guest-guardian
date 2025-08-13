@@ -32,6 +32,7 @@ interface Guest {
   id: string;
   name: string;
   email: string;
+  type: 'invited' | 'guest';
 }
 
 const TableManager = () => {
@@ -86,15 +87,49 @@ const TableManager = () => {
     }
   }, []);
 
-  // Load guests from Supabase
+  // Load both invited guests and their registered guests from Supabase
   useEffect(() => {
     const loadGuests = async () => {
       const { data, error } = await supabase
-        .from('invited_guests')
-        .select('*');
+        .from('registrations')
+        .select(`
+          invited_guest_id,
+          invited_guests!inner(name, email),
+          guest_registrations(guest_name, guest_email)
+        `)
+        .eq('will_attend', true);
       
       if (!error && data) {
-        setGuests(data);
+        const combinedGuests: Guest[] = [];
+        
+        // Add invited guests
+        data.forEach((registration: any) => {
+          const invitedGuest = registration.invited_guests;
+          if (invitedGuest && !combinedGuests.some(g => g.email === invitedGuest.email)) {
+            combinedGuests.push({
+              id: registration.invited_guest_id,
+              name: invitedGuest.name,
+              email: invitedGuest.email,
+              type: 'invited'
+            });
+          }
+          
+          // Add their registered guests
+          registration.guest_registrations?.forEach((guest: any) => {
+            if (guest.guest_name && !combinedGuests.some(g => g.email === guest.guest_email)) {
+              combinedGuests.push({
+                id: `guest-${guest.guest_email}`,
+                name: guest.guest_name,
+                email: guest.guest_email,
+                type: 'guest'
+              });
+            }
+          });
+        });
+        
+        // Sort guests by name
+        combinedGuests.sort((a, b) => a.name.localeCompare(b.name));
+        setGuests(combinedGuests);
       }
     };
     loadGuests();
@@ -509,6 +544,18 @@ const TableManager = () => {
           </Card>
         )}
       </div>
+      
+      {/* Modi Ventures Logo Footer */}
+      <div className="border-t bg-card mt-8">
+        <div className="container mx-auto px-4 py-6">
+          <div className="flex items-center justify-center">
+            <div className="flex items-center space-x-4">
+              <img src="/lovable-uploads/41378f9d-db71-4814-8ea0-835eac6a7179.png" alt="Modi Ventures Logo" className="h-8 w-auto" />
+              <span className="text-lg font-medium tracking-wider text-foreground">MODI VENTURES</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
@@ -554,7 +601,7 @@ const SeatAssignmentForm = ({
             <SelectContent>
               {guests.map((guest) => (
                 <SelectItem key={guest.id} value={guest.name}>
-                  {guest.name}
+                  {guest.name} {guest.type === 'guest' && '(Guest)'}
                 </SelectItem>
               ))}
             </SelectContent>
