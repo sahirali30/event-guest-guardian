@@ -21,11 +21,7 @@ const Index = () => {
             />
           </div>
           <p className="text-xl text-muted-foreground">Register for our annual investor meeting and reception</p>
-          <div className="mt-4">
-            <Button asChild variant="outline">
-              <Link to="/tables">Table Seating Manager</Link>
-            </Button>
-          </div>
+          
         </div>
         <EventRegistration />
       </div>
