@@ -272,12 +272,13 @@ const TableManager = () => {
         setting_value: 'admincode@modivc.com'
       });
 
-      // Check if table exists
+      // Check if table exists (get most recent if multiple exist)
       const { data: existingTable } = await supabase
         .from('table_configurations')
         .select('id')
         .eq('table_number', table.number)
-        .single();
+        .order('created_at', { ascending: false })
+        .maybeSingle();
 
       let tableConfigId: string;
 
