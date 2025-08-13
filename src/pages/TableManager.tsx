@@ -330,16 +330,18 @@ const TableManager = () => {
       // Save seat assignments
       for (let i = 0; i < table.seats.length; i++) {
         const seat = table.seats[i];
-        await supabase
-          .from('seat_assignments')
-          .insert({
-            table_configuration_id: tableConfigId,
-            seat_index: i,
-            seat_angle: seat.angle,
-            guest_name: seat.guestName || null,
-            tag: seat.tag || null,
-            note: seat.note || null
-          });
+        if (seat.guestName || seat.tag || seat.note) {
+          await supabase
+            .from('seat_assignments')
+            .insert({
+              table_configuration_id: tableConfigId,
+              seat_index: i,
+              seat_angle: seat.angle,
+              guest_name: seat.guestName || null,
+              tag: seat.tag || null,
+              note: seat.note || null
+            });
+        }
       }
     } catch (error) {
       console.error('Error saving table to database:', error);
