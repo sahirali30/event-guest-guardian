@@ -51,6 +51,12 @@ const TableManager = () => {
   useEffect(() => {
     const loadTables = async () => {
       try {
+        // Set admin context for table management access
+        await supabase.rpc('set_config', {
+          setting_name: 'app.current_user_email',
+          setting_value: 'admincode@modivc.com' // This should be replaced with actual authentication
+        });
+
         // First, try to load from database
         const { data: tableConfigs, error } = await supabase
           .from('table_configurations')

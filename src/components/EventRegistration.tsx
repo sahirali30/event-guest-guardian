@@ -199,10 +199,14 @@ export default function EventRegistration() {
     }
 
     // Set the user email in the session context for RLS policies
-    await supabase.rpc('set_config', {
-      setting_name: 'app.current_user_email',
-      setting_value: email.toLowerCase()
-    });
+    try {
+      await supabase.rpc('set_config', {
+        setting_name: 'app.current_user_email',
+        setting_value: email.toLowerCase()
+      });
+    } catch (error) {
+      console.error("Error setting user context:", error);
+    }
 
     // Check for admin code
     if (email.toLowerCase() === "admincode@modivc.com") {
