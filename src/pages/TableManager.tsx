@@ -327,27 +327,42 @@ const TableManager = () => {
     const tableKey = `table-${table.number}`;
     setPendingSaves(prev => new Set(prev).add(tableKey));
     
+    console.log(`Attempting to save table ${table.number} (attempt 1/${retries})`);
+    
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         setSaveStatus('saving');
         
+        console.log(`Save attempt ${attempt} for table ${table.number}: Setting up admin context...`);
+        
         // Setup admin context with retry logic
         const contextSet = await setupAdminContext();
         if (!contextSet) {
-          throw new Error('Failed to establish admin context');
+          throw new Error('Failed to establish admin context after retries');
         }
 
+        console.log(`Admin context established for table ${table.number}`);
+
         // Check if table exists (get most recent if multiple exist)
-        const { data: existingTable } = await supabase
+        console.log(`Checking if table ${table.number} exists in database...`);
+        const { data: existingTable, error: selectError } = await supabase
           .from('table_configurations')
           .select('id')
           .eq('table_number', table.number)
           .order('created_at', { ascending: false })
           .maybeSingle();
 
+        if (selectError) {
+          console.error(`Error checking existing table ${table.number}:`, selectError);
+          throw selectError;
+        }
+
+        console.log(`Table ${table.number} existing check result:`, existingTable);
+
         let tableConfigId: string;
 
         if (existingTable) {
+          console.log(`Updating existing table ${table.number} with ID ${existingTable.id}`);
           // Update existing table
           const { data: updatedTable, error: updateError } = await supabase
             .from('table_configurations')
@@ -362,10 +377,13 @@ const TableManager = () => {
             .single();
 
           if (updateError) {
+            console.error(`Error updating table ${table.number}:`, updateError);
             throw updateError;
           }
           tableConfigId = updatedTable.id;
+          console.log(`Table ${table.number} updated successfully with ID ${tableConfigId}`);
         } else {
+          console.log(`Inserting new table ${table.number}`);
           // Insert new table
           const { data: newTable, error: insertError } = await supabase
             .from('table_configurations')
@@ -380,22 +398,35 @@ const TableManager = () => {
             .single();
 
           if (insertError) {
+            console.error(`Error inserting table ${table.number}:`, insertError);
             throw insertError;
           }
           tableConfigId = newTable.id;
+          console.log(`Table ${table.number} inserted successfully with ID ${tableConfigId}`);
         }
 
         // Clear existing seat assignments for this table
-        await supabase
+        console.log(`Clearing existing seat assignments for table ${table.number} (ID: ${tableConfigId})`);
+        const { error: deleteError } = await supabase
           .from('seat_assignments')
           .delete()
           .eq('table_configuration_id', tableConfigId);
 
+        if (deleteError) {
+          console.error(`Error clearing seat assignments for table ${table.number}:`, deleteError);
+          throw deleteError;
+        }
+
         // Save seat assignments
+        console.log(`Saving seat assignments for table ${table.number}...`);
+        const seatsWithData = table.seats.filter(seat => seat.guestName || seat.tag || seat.note);
+        console.log(`Found ${seatsWithData.length} seats with data to save for table ${table.number}`);
+        
         for (let i = 0; i < table.seats.length; i++) {
           const seat = table.seats[i];
           if (seat.guestName || seat.tag || seat.note) {
-            await supabase
+            console.log(`Saving seat ${i} for table ${table.number}:`, { guestName: seat.guestName, tag: seat.tag, note: seat.note });
+            const { error: seatError } = await supabase
               .from('seat_assignments')
               .insert({
                 table_configuration_id: tableConfigId,
@@ -405,8 +436,15 @@ const TableManager = () => {
                 tag: seat.tag || null,
                 note: seat.note || null
               });
+              
+            if (seatError) {
+              console.error(`Error saving seat ${i} for table ${table.number}:`, seatError);
+              throw seatError;
+            }
           }
         }
+        
+        console.log(`Successfully saved table ${table.number} and all seat assignments`);
         
         setPendingSaves(prev => {
           const newSet = new Set(prev);
@@ -416,11 +454,15 @@ const TableManager = () => {
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
         return true;
-      } catch (error) {
-        console.error(`Save table attempt ${attempt} failed:`, error);
+      } catch (error: any) {
+        console.error(`Save table ${table.number} attempt ${attempt} failed:`, error);
+        console.error('Error details:', error.message, error.code, error.details);
+        
         if (attempt < retries) {
+          console.log(`Retrying save for table ${table.number} in ${200 * attempt}ms...`);
           await new Promise(resolve => setTimeout(resolve, 200 * attempt));
         } else {
+          console.error(`All ${retries} save attempts failed for table ${table.number}`);
           setPendingSaves(prev => {
             const newSet = new Set(prev);
             newSet.delete(tableKey);
@@ -430,7 +472,7 @@ const TableManager = () => {
           setTimeout(() => setSaveStatus('idle'), 3000);
           showToast({
             title: "Save Error", 
-            description: `Failed to save table ${table.number} after ${retries} attempts: ${error.message}`,
+            description: `Failed to save table ${table.number} after ${retries} attempts: ${error.message || 'Unknown error'}`,
             variant: "destructive"
           });
           return false;
@@ -662,14 +704,25 @@ const TableManager = () => {
     
     if (updatedTable) {
       console.log('Starting save to database...');
-      await saveTableToDatabase(updatedTable);
-      console.log('Save completed');
+      try {
+        const success = await saveTableToDatabase(updatedTable);
+        if (success) {
+          console.log('Save completed successfully');
+          toast.success('Seat assigned and saved');
+        } else {
+          console.error('Save failed');
+          toast.error('Failed to save seat assignment');
+        }
+      } catch (error) {
+        console.error('Error during save:', error);
+        toast.error('Error saving seat assignment');
+      }
     } else {
       console.error('Could not find updated table for saving');
+      toast.error('Could not find table to save');
     }
     
     setSelectedSeat(null);
-    toast.success('Seat assigned');
   };
 
   const searchGuest = (query: string) => {
