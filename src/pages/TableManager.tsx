@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Seat {
@@ -47,17 +47,52 @@ const TableManager = () => {
   const [zoom, setZoom] = useState(1);
   const [draggedTable, setDraggedTable] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | 'idle'>('idle');
+  const [pendingSaves, setPendingSaves] = useState<Set<string>>(new Set());
   const canvasRef = useRef<HTMLDivElement>(null);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Enhanced admin context setup with retry logic
+  const setupAdminContext = async (retries = 3): Promise<boolean> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await supabase.rpc('set_config', {
+          setting_name: 'app.current_user_email',
+          setting_value: 'admincode@modivc.com'
+        });
+        
+        // Verify the context was set by attempting a simple query
+        const { error: testError } = await supabase
+          .from('table_configurations')
+          .select('id')
+          .limit(1);
+          
+        if (!testError) {
+          return true;
+        }
+        
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+        }
+      } catch (error) {
+        console.error(`Admin context setup attempt ${attempt} failed:`, error);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+        }
+      }
+    }
+    return false;
+  };
 
   // Load tables from database or initialize default layout
   useEffect(() => {
     const loadTables = async () => {
       try {
-        // Set admin context for table management access
-        await supabase.rpc('set_config', {
-          setting_name: 'app.current_user_email',
-          setting_value: 'admincode@modivc.com' // This should be replaced with actual authentication
-        });
+        // Setup admin context with retry logic
+        const contextSet = await setupAdminContext();
+        if (!contextSet) {
+          throw new Error('Failed to establish admin context');
+        }
 
         // First, try to load from database
         const { data: tableConfigs, error } = await supabase
@@ -148,11 +183,12 @@ const TableManager = () => {
   useEffect(() => {
     const loadGuests = async () => {
       try {
-        // Set admin context for guest data access
-        await supabase.rpc('set_config', {
-          setting_name: 'app.current_user_email',
-          setting_value: 'admincode@modivc.com'
-        });
+        // Setup admin context for guest data access
+        const contextSet = await setupAdminContext();
+        if (!contextSet) {
+          console.error('Failed to establish admin context for guest loading');
+          return;
+        }
 
         const { data, error } = await supabase
         .from('registrations')
@@ -211,17 +247,20 @@ const TableManager = () => {
     }
   }, [tables]);
 
-  // Database functions
-  const saveTablesToDatabase = async (tablesToSave: Table[]) => {
-    try {
-      // Set admin context for table operations
-      await supabase.rpc('set_config', {
-        setting_name: 'app.current_user_email',
-        setting_value: 'admincode@modivc.com'
-      });
+  // Enhanced database save with retry logic and error handling
+  const saveTablesToDatabase = async (tablesToSave: Table[], retries = 3): Promise<boolean> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        setSaveStatus('saving');
+        
+        // Setup admin context with retry logic
+        const contextSet = await setupAdminContext();
+        if (!contextSet) {
+          throw new Error('Failed to establish admin context');
+        }
 
-      // Clear existing data
-      await supabase.from('table_configurations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        // Clear existing data
+        await supabase.from('table_configurations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       
       // Save table configurations
       for (const table of tablesToSave) {
@@ -259,99 +298,144 @@ const TableManager = () => {
           }
         }
       }
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      return true;
     } catch (error) {
-      console.error('Error saving to database:', error);
+      console.error(`Save attempt ${attempt} failed:`, error);
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+      } else {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+        showToast({
+          title: "Save Failed",
+          description: `Failed to save tables after ${retries} attempts: ${error.message}`,
+          variant: "destructive"
+        });
+        return false;
+      }
     }
+    }
+    return false;
   };
 
-  const saveTableToDatabase = async (table: Table) => {
-    try {
-      // Set admin context for table operations
-      await supabase.rpc('set_config', {
-        setting_name: 'app.current_user_email',
-        setting_value: 'admincode@modivc.com'
-      });
+  // Debounced save with retry logic for individual tables
+  const saveTableToDatabase = async (table: Table, retries = 3): Promise<boolean> => {
+    const tableKey = `table-${table.number}`;
+    setPendingSaves(prev => new Set(prev).add(tableKey));
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        setSaveStatus('saving');
+        
+        // Setup admin context with retry logic
+        const contextSet = await setupAdminContext();
+        if (!contextSet) {
+          throw new Error('Failed to establish admin context');
+        }
 
-      // Check if table exists (get most recent if multiple exist)
-      const { data: existingTable } = await supabase
-        .from('table_configurations')
-        .select('id')
-        .eq('table_number', table.number)
-        .order('created_at', { ascending: false })
-        .maybeSingle();
-
-      let tableConfigId: string;
-
-      if (existingTable) {
-        // Update existing table
-        const { data: updatedTable, error: updateError } = await supabase
+        // Check if table exists (get most recent if multiple exist)
+        const { data: existingTable } = await supabase
           .from('table_configurations')
-          .update({
-            label: table.label,
-            x: table.x,
-            y: table.y,
-            seat_count: table.seats.length
-          })
+          .select('id')
           .eq('table_number', table.number)
-          .select()
-          .single();
+          .order('created_at', { ascending: false })
+          .maybeSingle();
 
-        if (updateError) {
-          console.error('Error updating table:', updateError);
-          return;
-        }
-        tableConfigId = updatedTable.id;
-      } else {
-        // Insert new table
-        const { data: newTable, error: insertError } = await supabase
-          .from('table_configurations')
-          .insert({
-            table_number: table.number,
-            label: table.label,
-            x: table.x,
-            y: table.y,
-            seat_count: table.seats.length
-          })
-          .select()
-          .single();
+        let tableConfigId: string;
 
-        if (insertError) {
-          console.error('Error inserting table:', insertError);
-          return;
-        }
-        tableConfigId = newTable.id;
-      }
+        if (existingTable) {
+          // Update existing table
+          const { data: updatedTable, error: updateError } = await supabase
+            .from('table_configurations')
+            .update({
+              label: table.label,
+              x: table.x,
+              y: table.y,
+              seat_count: table.seats.length
+            })
+            .eq('table_number', table.number)
+            .select()
+            .single();
 
-      // Clear existing seat assignments for this table
-      await supabase
-        .from('seat_assignments')
-        .delete()
-        .eq('table_configuration_id', tableConfigId);
-
-      // Save seat assignments
-      for (let i = 0; i < table.seats.length; i++) {
-        const seat = table.seats[i];
-        if (seat.guestName || seat.tag || seat.note) {
-          await supabase
-            .from('seat_assignments')
+          if (updateError) {
+            throw updateError;
+          }
+          tableConfigId = updatedTable.id;
+        } else {
+          // Insert new table
+          const { data: newTable, error: insertError } = await supabase
+            .from('table_configurations')
             .insert({
-              table_configuration_id: tableConfigId,
-              seat_index: i,
-              seat_angle: seat.angle,
-              guest_name: seat.guestName || null,
-              tag: seat.tag || null,
-              note: seat.note || null
-            });
+              table_number: table.number,
+              label: table.label,
+              x: table.x,
+              y: table.y,
+              seat_count: table.seats.length
+            })
+            .select()
+            .single();
+
+          if (insertError) {
+            throw insertError;
+          }
+          tableConfigId = newTable.id;
+        }
+
+        // Clear existing seat assignments for this table
+        await supabase
+          .from('seat_assignments')
+          .delete()
+          .eq('table_configuration_id', tableConfigId);
+
+        // Save seat assignments
+        for (let i = 0; i < table.seats.length; i++) {
+          const seat = table.seats[i];
+          if (seat.guestName || seat.tag || seat.note) {
+            await supabase
+              .from('seat_assignments')
+              .insert({
+                table_configuration_id: tableConfigId,
+                seat_index: i,
+                seat_angle: seat.angle,
+                guest_name: seat.guestName || null,
+                tag: seat.tag || null,
+                note: seat.note || null
+              });
+          }
+        }
+        
+        setPendingSaves(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(tableKey);
+          return newSet;
+        });
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+        return true;
+      } catch (error) {
+        console.error(`Save table attempt ${attempt} failed:`, error);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+        } else {
+          setPendingSaves(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tableKey);
+            return newSet;
+          });
+          setSaveStatus('error');
+          setTimeout(() => setSaveStatus('idle'), 3000);
+          showToast({
+            title: "Save Error", 
+            description: `Failed to save table ${table.number} after ${retries} attempts: ${error.message}`,
+            variant: "destructive"
+          });
+          return false;
         }
       }
-    } catch (error) {
-      console.error('Error saving table to database:', error);
-      showToast({
-        title: "Save Error", 
-        description: `Failed to save table: ${error.message}`,
-        variant: "destructive"
-      });
     }
+    return false;
   };
 
   const createTable = (number: number, x: number, y: number): Table => {
@@ -428,17 +512,29 @@ const TableManager = () => {
     }
   }, [draggedTable, pendingDragTable, dragStartPosition, dragOffset, zoom]);
 
+  // Debounced save for drag operations
+  const debouncedSave = useCallback((table: Table) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(async () => {
+      await saveTableToDatabase(table);
+    }, 500); // Wait 500ms after drag stops before saving
+  }, []);
+
   const handleMouseUp = useCallback(async () => {
     if (draggedTable) {
       const draggedTableData = tables.find(t => t.id === draggedTable);
       if (draggedTableData) {
-        await saveTableToDatabase(draggedTableData);
+        // Use debounced save to avoid rapid saves during drag
+        debouncedSave(draggedTableData);
       }
     }
     setDraggedTable(null);
     setPendingDragTable(null);
     setDragStartPosition(null);
-  }, [draggedTable, tables]);
+  }, [draggedTable, tables, debouncedSave]);
 
   useEffect(() => {
     document.addEventListener('mousemove', handleMouseMove);
@@ -517,11 +613,11 @@ const TableManager = () => {
     const tableToDelete = tables.find(t => t.id === tableId);
     if (tableToDelete) {
       try {
-        // Set admin context for table operations
-        await supabase.rpc('set_config', {
-          setting_name: 'app.current_user_email',
-          setting_value: 'admincode@modivc.com'
-        });
+        // Setup admin context with retry logic
+        const contextSet = await setupAdminContext();
+        if (!contextSet) {
+          throw new Error('Failed to establish admin context');
+        }
 
         // Delete from database
         await supabase
@@ -649,6 +745,33 @@ const TableManager = () => {
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold">Table Seating Manager</h1>
             <div className="flex items-center gap-2">
+              {/* Save Status Indicator */}
+              <div className="flex items-center gap-1 text-xs">
+                {saveStatus === 'saving' && (
+                  <>
+                    <div className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" />
+                    <span className="text-muted-foreground">Saving...</span>
+                  </>
+                )}
+                {saveStatus === 'saved' && (
+                  <>
+                    <CheckCircle className="w-3 h-3 text-green-500" />
+                    <span className="text-green-500">Saved</span>
+                  </>
+                )}
+                {saveStatus === 'error' && (
+                  <>
+                    <AlertCircle className="w-3 h-3 text-red-500" />
+                    <span className="text-red-500">Save failed</span>
+                  </>
+                )}
+                {pendingSaves.size > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    ({pendingSaves.size} pending)
+                  </span>
+                )}
+              </div>
+              
               <Button onClick={addTable} size="sm">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Table
