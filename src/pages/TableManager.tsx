@@ -374,15 +374,24 @@ const TableManager = () => {
             })
             .eq('table_number', table.number)
             .select()
-            .single();
+            .maybeSingle();
 
           if (updateError) {
             console.error(`Error updating table ${table.number}:`, updateError);
             throw updateError;
           }
-          tableConfigId = updatedTable.id;
-          console.log(`Table ${table.number} updated successfully with ID ${tableConfigId}`);
-        } else {
+          
+          // Handle case where update returns 0 rows (PGRST116 error)
+          if (!updatedTable) {
+            console.log(`Update returned 0 rows for table ${table.number}, attempting insert instead`);
+            // Fall through to insert logic
+          } else {
+            tableConfigId = updatedTable.id;
+            console.log(`Table ${table.number} updated successfully with ID ${tableConfigId}`);
+          }
+        }
+        
+        if (!existingTable || !tableConfigId) {
           console.log(`Inserting new table ${table.number}`);
           // Insert new table
           const { data: newTable, error: insertError } = await supabase
