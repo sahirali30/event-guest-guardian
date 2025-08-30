@@ -147,28 +147,29 @@ const TableManager = () => {
 
     const initializeDefaultTables = async () => {
       const initialTables: Table[] = [];
-      const canvasWidth = 1200;
-      const canvasHeight = 800;
+      const canvasWidth = 2000;  // Expanded from 1200 to 2000
+      const canvasHeight = 1400; // Expanded from 800 to 1400
+      const margin = 150;        // Added margin around edges
       
       // Ensure we always have complete set of tables 1-24
-      // Row 1: Tables 1-10
+      // Row 1: Tables 1-10 with improved spacing
       for (let i = 1; i <= 10; i++) {
-        const x = (i) * (canvasWidth / 11);
-        const y = 150;
+        const x = margin + (i - 1) * ((canvasWidth - 2 * margin) / 9);
+        const y = 250;  // Moved down from 150 to give top margin
         initialTables.push(createTable(i, x, y));
       }
       
-      // Row 2: Tables 11-20
+      // Row 2: Tables 11-20 with improved spacing 
       for (let i = 11; i <= 20; i++) {
-        const x = (i - 10) * (canvasWidth / 11);
-        const y = 350;
+        const x = margin + (i - 11) * ((canvasWidth - 2 * margin) / 9);
+        const y = 650;  // Increased spacing from 350 to 650 (400px gap between rows)
         initialTables.push(createTable(i, x, y));
       }
       
-      // Row 3: Tables 21-24
+      // Row 3: Tables 21-24 with improved spacing
       for (let i = 21; i <= 24; i++) {
-        const x = (i - 20) * (canvasWidth / 5);
-        const y = 550;
+        const x = margin + (canvasWidth - 2 * margin) / 4 * (i - 21) + (canvasWidth - 2 * margin) / 8;
+        const y = 1050; // Increased spacing from 550 to 1050 (400px gap)
         initialTables.push(createTable(i, x, y));
       }
       
@@ -507,7 +508,7 @@ const TableManager = () => {
 
       setTables(prev => prev.map(table => 
         table.id === draggedTable 
-          ? { ...table, x: Math.max(50, Math.min(1150, newX)), y: Math.max(50, Math.min(750, newY)) }
+          ? { ...table, x: Math.max(50, Math.min(1950, newX)), y: Math.max(50, Math.min(1350, newY)) }
           : table
       ));
     }
@@ -695,29 +696,30 @@ const TableManager = () => {
     try {
       setSaveStatus('saving');
       
-      // Create complete default layout (tables 1-24)
+      // Create complete default layout (tables 1-24) with expanded dimensions
       const defaultTables: Table[] = [];
-      const canvasWidth = 1200;
-      const canvasHeight = 800;
+      const canvasWidth = 2000;  // Expanded dimensions
+      const canvasHeight = 1400;
+      const margin = 150;
       
-      // Row 1: Tables 1-10
+      // Row 1: Tables 1-10 with improved spacing
       for (let i = 1; i <= 10; i++) {
-        const x = (i) * (canvasWidth / 11);
-        const y = 150;
+        const x = margin + (i - 1) * ((canvasWidth - 2 * margin) / 9);
+        const y = 250;
         defaultTables.push(createTable(i, x, y));
       }
       
-      // Row 2: Tables 11-20
+      // Row 2: Tables 11-20 with improved spacing
       for (let i = 11; i <= 20; i++) {
-        const x = (i - 10) * (canvasWidth / 11);
-        const y = 350;
+        const x = margin + (i - 11) * ((canvasWidth - 2 * margin) / 9);
+        const y = 650;
         defaultTables.push(createTable(i, x, y));
       }
       
-      // Row 3: Tables 21-24
+      // Row 3: Tables 21-24 with improved spacing
       for (let i = 21; i <= 24; i++) {
-        const x = (i - 20) * (canvasWidth / 5);
-        const y = 550;
+        const x = margin + (canvasWidth - 2 * margin) / 4 * (i - 21) + (canvasWidth - 2 * margin) / 8;
+        const y = 1050;
         defaultTables.push(createTable(i, x, y));
       }
       
@@ -901,8 +903,8 @@ const TableManager = () => {
           <div 
             className="relative bg-muted/20"
             style={{
-              width: '1200px',
-              height: '800px',
+              width: '2000px',
+              height: '1400px',
               transform: `scale(${zoom})`,
               transformOrigin: 'top left',
             }}
