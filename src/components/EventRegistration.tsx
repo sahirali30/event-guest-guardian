@@ -340,6 +340,11 @@ export default function EventRegistration() {
 
     setIsLoading(true);
     try {
+      // Set the user email in the session context for RLS policies
+      await supabase.rpc('set_config', {
+        setting_name: 'app.current_user_email',
+        setting_value: email.toLowerCase()
+      });
       if (existingRegistration) {
         // Update existing registration
         const { error: updateError } = await supabase
@@ -370,7 +375,10 @@ export default function EventRegistration() {
             .from("guest_registrations")
             .insert(guestRegistrations);
 
-          if (guestError) throw guestError;
+          if (guestError) {
+            console.error("Guest registration error:", guestError);
+            throw new Error(`Failed to register guests: ${guestError.message}`);
+          }
         }
 
         setIsRegistered(true);
@@ -406,7 +414,10 @@ export default function EventRegistration() {
             .from("guest_registrations")
             .insert(guestRegistrations);
 
-          if (guestError) throw guestError;
+          if (guestError) {
+            console.error("Guest registration error:", guestError);
+            throw new Error(`Failed to register guests: ${guestError.message}`);
+          }
         }
 
         setIsRegistered(true);
@@ -419,9 +430,14 @@ export default function EventRegistration() {
       }
     } catch (error) {
       console.error("Error registering:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+      const isRLSError = errorMessage.includes("row-level security") || errorMessage.includes("RLS");
+      
       toast({
         title: "Registration Failed",
-        description: "An error occurred while processing your registration. Please try again.",
+        description: isRLSError 
+          ? "Permission denied. Please contact support if this persists."
+          : `An error occurred while processing your registration: ${errorMessage}`,
         variant: "destructive",
       });
     } finally {
