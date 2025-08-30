@@ -365,19 +365,28 @@ export default function EventRegistration() {
         // Add new guest registrations if any
         const guestsToRegister = guests.filter(guest => guest.name.trim() !== "");
         if (guestsToRegister.length > 0) {
-          const guestRegistrations = guestsToRegister.map(guest => ({
-            registration_id: existingRegistration.id,
-            guest_name: guest.name,
-            guest_email: guest.email || null,
-          }));
+          // Insert guests one by one to ensure proper RLS context for each
+          for (let i = 0; i < guestsToRegister.length; i++) {
+            const guest = guestsToRegister[i];
+            
+            // Set context before each guest insertion
+            await supabase.rpc('set_config', {
+              setting_name: 'app.current_user_email',
+              setting_value: email.toLowerCase()
+            });
 
-          const { error: guestError } = await supabase
-            .from("guest_registrations")
-            .insert(guestRegistrations);
+            const { error: guestError } = await supabase
+              .from("guest_registrations")
+              .insert({
+                registration_id: existingRegistration.id,
+                guest_name: guest.name,
+                guest_email: guest.email || null,
+              });
 
-          if (guestError) {
-            console.error("Guest registration error:", guestError);
-            throw new Error(`Failed to register guests: ${guestError.message}`);
+            if (guestError) {
+              console.error(`Guest registration error for guest ${i + 1}:`, guestError);
+              throw new Error(`Failed to register guest ${i + 1}: ${guestError.message}`);
+            }
           }
         }
 
@@ -404,19 +413,28 @@ export default function EventRegistration() {
         // Add guest registrations if any
         const guestsToRegister = guests.filter(guest => guest.name.trim() !== "");
         if (guestsToRegister.length > 0) {
-          const guestRegistrations = guestsToRegister.map(guest => ({
-            registration_id: registration.id,
-            guest_name: guest.name,
-            guest_email: guest.email || null,
-          }));
+          // Insert guests one by one to ensure proper RLS context for each
+          for (let i = 0; i < guestsToRegister.length; i++) {
+            const guest = guestsToRegister[i];
+            
+            // Set context before each guest insertion
+            await supabase.rpc('set_config', {
+              setting_name: 'app.current_user_email',
+              setting_value: email.toLowerCase()
+            });
 
-          const { error: guestError } = await supabase
-            .from("guest_registrations")
-            .insert(guestRegistrations);
+            const { error: guestError } = await supabase
+              .from("guest_registrations")
+              .insert({
+                registration_id: registration.id,
+                guest_name: guest.name,
+                guest_email: guest.email || null,
+              });
 
-          if (guestError) {
-            console.error("Guest registration error:", guestError);
-            throw new Error(`Failed to register guests: ${guestError.message}`);
+            if (guestError) {
+              console.error(`Guest registration error for guest ${i + 1}:`, guestError);
+              throw new Error(`Failed to register guest ${i + 1}: ${guestError.message}`);
+            }
           }
         }
 
