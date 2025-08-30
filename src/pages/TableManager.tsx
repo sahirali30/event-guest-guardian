@@ -150,29 +150,30 @@ const TableManager = () => {
       const canvasWidth = 1200;
       const canvasHeight = 800;
       
-      // Row 1: 10 tables
-      for (let i = 0; i < 10; i++) {
-        const x = (i + 1) * (canvasWidth / 11);
+      // Ensure we always have complete set of tables 1-24
+      // Row 1: Tables 1-10
+      for (let i = 1; i <= 10; i++) {
+        const x = (i) * (canvasWidth / 11);
         const y = 150;
-        initialTables.push(createTable(i + 1, x, y));
+        initialTables.push(createTable(i, x, y));
       }
       
-      // Row 2: 10 tables
-      for (let i = 0; i < 10; i++) {
-        const x = (i + 1) * (canvasWidth / 11);
+      // Row 2: Tables 11-20
+      for (let i = 11; i <= 20; i++) {
+        const x = (i - 10) * (canvasWidth / 11);
         const y = 350;
-        initialTables.push(createTable(i + 11, x, y));
+        initialTables.push(createTable(i, x, y));
       }
       
-      // Row 3: 4 tables
-      for (let i = 0; i < 4; i++) {
-        const x = (i + 1) * (canvasWidth / 5);
+      // Row 3: Tables 21-24
+      for (let i = 21; i <= 24; i++) {
+        const x = (i - 20) * (canvasWidth / 5);
         const y = 550;
-        initialTables.push(createTable(i + 21, x, y));
+        initialTables.push(createTable(i, x, y));
       }
       
       setTables(initialTables);
-      // Save initial layout to database
+      // Save complete layout to database
       await saveTablesToDatabase(initialTables);
     };
 
@@ -690,6 +691,56 @@ const TableManager = () => {
     }
   };
 
+  const resetToDefault = async () => {
+    try {
+      setSaveStatus('saving');
+      
+      // Create complete default layout (tables 1-24)
+      const defaultTables: Table[] = [];
+      const canvasWidth = 1200;
+      const canvasHeight = 800;
+      
+      // Row 1: Tables 1-10
+      for (let i = 1; i <= 10; i++) {
+        const x = (i) * (canvasWidth / 11);
+        const y = 150;
+        defaultTables.push(createTable(i, x, y));
+      }
+      
+      // Row 2: Tables 11-20
+      for (let i = 11; i <= 20; i++) {
+        const x = (i - 10) * (canvasWidth / 11);
+        const y = 350;
+        defaultTables.push(createTable(i, x, y));
+      }
+      
+      // Row 3: Tables 21-24
+      for (let i = 21; i <= 24; i++) {
+        const x = (i - 20) * (canvasWidth / 5);
+        const y = 550;
+        defaultTables.push(createTable(i, x, y));
+      }
+      
+      setTables(defaultTables);
+      
+      // Save all default tables to database
+      await saveTablesToDatabase(defaultTables);
+      
+      showToast({
+        title: "Tables Reset",
+        description: "All tables restored to default layout (1-24)",
+      });
+    } catch (error) {
+      console.error('Failed to reset tables:', error);
+      setSaveStatus('error');
+      showToast({
+        title: "Reset Failed",
+        description: "Failed to reset tables to default layout",
+        variant: "destructive"
+      });
+    }
+  };
+
   const exportLayout = () => {
     const dataStr = JSON.stringify(tables, null, 2);
     const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -772,6 +823,10 @@ const TableManager = () => {
                 )}
               </div>
               
+              <Button onClick={resetToDefault} variant="outline" size="sm">
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Reset Tables
+              </Button>
               <Button onClick={addTable} size="sm">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Table
