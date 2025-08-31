@@ -598,7 +598,6 @@ const TableManager = () => {
   }, [draggedTable, pendingDragTable, dragStartPosition, dragOffset, zoom]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    e.preventDefault(); // Prevent scrolling
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -616,11 +615,13 @@ const TableManager = () => {
       // Start dragging if touch moved more than 5 pixels
       if (distance > 5) {
         setDraggedTable(pendingDragTable);
+        e.preventDefault(); // Only prevent scrolling when starting drag
       }
     }
 
     // Continue dragging if already dragging
     if (draggedTable) {
+      e.preventDefault(); // Only prevent scrolling during active drag
       const newX = touchX / zoom - dragOffset.x;
       const newY = touchY / zoom - dragOffset.y;
 
