@@ -969,6 +969,10 @@ const TableManager = () => {
               height: '1400px',
               transform: `scale(${zoom})`,
               transformOrigin: 'top left',
+              backgroundImage: 'url("/src/assets/hall-floor-plan.png")',
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
             }}
           >
             {tables.map((table) => (
