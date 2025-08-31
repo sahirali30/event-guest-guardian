@@ -969,7 +969,7 @@ const TableManager = () => {
               height: '1400px',
               transform: `scale(${zoom})`,
               transformOrigin: 'top left',
-              backgroundImage: 'url("/src/assets/hall-floor-plan.png")',
+              backgroundImage: 'url("/lovable-uploads/a3f76216-9fc3-4634-8419-d4cbdbef2e73.png")',
               backgroundSize: 'contain',
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
