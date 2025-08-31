@@ -513,6 +513,17 @@ const TableManager = () => {
   const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null);
   const [pendingDragTable, setPendingDragTable] = useState<string | null>(null);
 
+  // Helper function to extract coordinates from mouse or touch events
+  const getEventCoordinates = (e: MouseEvent | TouchEvent) => {
+    if ('touches' in e) {
+      return {
+        clientX: e.touches[0]?.clientX || 0,
+        clientY: e.touches[0]?.clientY || 0
+      };
+    }
+    return { clientX: e.clientX, clientY: e.clientY };
+  };
+
   const handleMouseDown = (e: React.MouseEvent, tableId: string) => {
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
@@ -532,12 +543,33 @@ const TableManager = () => {
     }
   };
 
+  const handleTouchStart = (e: React.TouchEvent, tableId: string) => {
+    e.preventDefault(); // Prevent scrolling and other default touch behaviors
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
+
+    setSelectedTable(tableId);
+    setPendingDragTable(tableId);
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect && e.touches[0]) {
+      const touchX = e.touches[0].clientX - rect.left;
+      const touchY = e.touches[0].clientY - rect.top;
+      setDragStartPosition({ x: touchX, y: touchY });
+      setDragOffset({
+        x: touchX / zoom - table.x,
+        y: touchY / zoom - table.y,
+      });
+    }
+  };
+
   const handleMouseMove = useCallback((e: MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const coordinates = getEventCoordinates(e);
+    const mouseX = coordinates.clientX - rect.left;
+    const mouseY = coordinates.clientY - rect.top;
 
     // Check if we should start dragging for a pending table
     if (pendingDragTable && !draggedTable && dragStartPosition) {
@@ -556,6 +588,41 @@ const TableManager = () => {
     if (draggedTable) {
       const newX = mouseX / zoom - dragOffset.x;
       const newY = mouseY / zoom - dragOffset.y;
+
+      setTables(prev => prev.map(table => 
+        table.id === draggedTable 
+          ? { ...table, x: Math.max(50, Math.min(1950, newX)), y: Math.max(50, Math.min(1350, newY)) }
+          : table
+      ));
+    }
+  }, [draggedTable, pendingDragTable, dragStartPosition, dragOffset, zoom]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    e.preventDefault(); // Prevent scrolling
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const coordinates = getEventCoordinates(e);
+    const touchX = coordinates.clientX - rect.left;
+    const touchY = coordinates.clientY - rect.top;
+
+    // Check if we should start dragging for a pending table
+    if (pendingDragTable && !draggedTable && dragStartPosition) {
+      const distance = Math.sqrt(
+        Math.pow(touchX - dragStartPosition.x, 2) + 
+        Math.pow(touchY - dragStartPosition.y, 2)
+      );
+      
+      // Start dragging if touch moved more than 5 pixels
+      if (distance > 5) {
+        setDraggedTable(pendingDragTable);
+      }
+    }
+
+    // Continue dragging if already dragging
+    if (draggedTable) {
+      const newX = touchX / zoom - dragOffset.x;
+      const newY = touchY / zoom - dragOffset.y;
 
       setTables(prev => prev.map(table => 
         table.id === draggedTable 
@@ -589,14 +656,31 @@ const TableManager = () => {
     setDragStartPosition(null);
   }, [draggedTable, tables, debouncedSave]);
 
+  const handleTouchEnd = useCallback(async () => {
+    if (draggedTable) {
+      const draggedTableData = tables.find(t => t.id === draggedTable);
+      if (draggedTableData) {
+        // Use debounced save to avoid rapid saves during drag
+        debouncedSave(draggedTableData);
+      }
+    }
+    setDraggedTable(null);
+    setPendingDragTable(null);
+    setDragStartPosition(null);
+  }, [draggedTable, tables, debouncedSave]);
+
   useEffect(() => {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [handleMouseMove, handleMouseUp]);
+  }, [handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
   const addSeat = async (tableId: string) => {
     const updatedTables = tables.map(table => {
@@ -989,6 +1073,7 @@ const TableManager = () => {
                     top: table.y - 40,
                   }}
                   onMouseDown={(e) => handleMouseDown(e, table.id)}
+                  onTouchStart={(e) => handleTouchStart(e, table.id)}
                 >
                   {table.number}
                 </div>
