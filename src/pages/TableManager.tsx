@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Seat {
@@ -1037,7 +1037,17 @@ const TableManager = () => {
         {selectedTableData && (
           <Card className="w-80 m-4">
             <CardHeader>
-              <CardTitle>Table {selectedTableData.number}</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Table {selectedTableData.number}</CardTitle>
+                <Button
+                  onClick={() => setSelectedTable(null)}
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-2">
