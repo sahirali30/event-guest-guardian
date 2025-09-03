@@ -218,7 +218,7 @@ const TableManager = () => {
           
           // Add their registered guests
           registration.guest_registrations?.forEach((guest: any) => {
-            if (guest.guest_name && !combinedGuests.some(g => g.email === guest.guest_email)) {
+            if (guest.guest_name && !combinedGuests.some(g => g.name === guest.guest_name && g.email === guest.guest_email)) {
               combinedGuests.push({
                 id: `guest-${guest.guest_email}`,
                 name: guest.guest_name,
