@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle, X, Grid3X3 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Seat {
@@ -972,6 +973,12 @@ const TableManager = () => {
                 )}
               </div>
               
+              <Button asChild size="sm" variant="default">
+                <Link to="/seating-grid">
+                  <Grid3X3 className="w-4 h-4 mr-2" />
+                  View Seating Grid
+                </Link>
+              </Button>
               <Button onClick={resetToDefault} variant="outline" size="sm">
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Reset Tables
