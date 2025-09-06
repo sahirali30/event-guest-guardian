@@ -250,7 +250,7 @@ const TableManager = () => {
     }
   }, [tables]);
 
-  // Enhanced database save with retry logic and error handling
+  // Non-destructive database save that preserves existing seat assignments
   const saveTablesToDatabase = async (tablesToSave: Table[], retries = 3): Promise<boolean> => {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -262,45 +262,80 @@ const TableManager = () => {
           throw new Error('Failed to establish admin context');
         }
 
-        // Clear existing data
-        await supabase.from('table_configurations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      
-      // Save table configurations
-      for (const table of tablesToSave) {
-        const { data: tableConfig, error: tableError } = await supabase
+        // Get existing table configurations to compare
+        const { data: existingTables, error: fetchError } = await supabase
           .from('table_configurations')
-          .insert({
-            table_number: table.number,
-            label: table.label,
-            x: table.x,
-            y: table.y,
-            seat_count: table.seats.length
-          })
-          .select()
-          .single();
+          .select('*')
+          .order('table_number', { ascending: true });
 
-        if (tableError) {
-          console.error('Error saving table:', tableError);
-          continue;
+        if (fetchError) {
+          console.error('Error fetching existing tables:', fetchError);
+          throw fetchError;
         }
 
-        // Save seat assignments
-        for (let i = 0; i < table.seats.length; i++) {
-          const seat = table.seats[i];
-          if (seat.guestName || seat.tag || seat.note) {
-            await supabase
-              .from('seat_assignments')
+        const existingTableMap = new Map(existingTables?.map(t => [t.table_number, t]) || []);
+        const tablesToSaveMap = new Map(tablesToSave.map(t => [t.number, t]));
+
+        // Delete tables that no longer exist in the new layout
+        const tablesToDelete = existingTables?.filter(existing => 
+          !tablesToSaveMap.has(existing.table_number)
+        ) || [];
+
+        for (const tableToDelete of tablesToDelete) {
+          await supabase
+            .from('table_configurations')
+            .delete()
+            .eq('id', tableToDelete.id);
+        }
+
+        // Process each table in the new layout
+        for (const table of tablesToSave) {
+          const existingTable = existingTableMap.get(table.number);
+          let tableConfigId: string;
+
+          if (existingTable) {
+            // Update existing table configuration
+            const { data: updatedTable, error: updateError } = await supabase
+              .from('table_configurations')
+              .update({
+                label: table.label,
+                x: table.x,
+                y: table.y,
+                seat_count: table.seats.length
+              })
+              .eq('id', existingTable.id)
+              .select()
+              .single();
+
+            if (updateError) {
+              console.error('Error updating table:', updateError);
+              continue;
+            }
+            tableConfigId = updatedTable.id;
+          } else {
+            // Insert new table configuration
+            const { data: newTable, error: insertError } = await supabase
+              .from('table_configurations')
               .insert({
-                table_configuration_id: tableConfig.id,
-                seat_index: i,
-                seat_angle: seat.angle,
-                guest_name: seat.guestName || null,
-                tag: seat.tag || null,
-                note: seat.note || null
-              });
+                table_number: table.number,
+                label: table.label,
+                x: table.x,
+                y: table.y,
+                seat_count: table.seats.length
+              })
+              .select()
+              .single();
+
+            if (insertError) {
+              console.error('Error inserting table:', insertError);
+              continue;
+            }
+            tableConfigId = newTable.id;
           }
+
+          // Update seat assignments for this table
+          await updateSeatAssignments(tableConfigId, table.seats);
         }
-      }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
       return true;
@@ -321,6 +356,32 @@ const TableManager = () => {
     }
     }
     return false;
+  };
+
+  // Helper function to update seat assignments for a table
+  const updateSeatAssignments = async (tableConfigId: string, seats: Seat[]) => {
+    // Delete existing seat assignments for this table
+    await supabase
+      .from('seat_assignments')
+      .delete()
+      .eq('table_configuration_id', tableConfigId);
+
+    // Insert new seat assignments
+    for (let i = 0; i < seats.length; i++) {
+      const seat = seats[i];
+      if (seat.guestName || seat.tag || seat.note) {
+        await supabase
+          .from('seat_assignments')
+          .insert({
+            table_configuration_id: tableConfigId,
+            seat_index: i,
+            seat_angle: seat.angle,
+            guest_name: seat.guestName || null,
+            tag: seat.tag || null,
+            note: seat.note || null
+          });
+      }
+    }
   };
 
   // Debounced save with retry logic for individual tables
@@ -841,6 +902,16 @@ const TableManager = () => {
   };
 
   const resetToDefault = async () => {
+    // Show confirmation dialog since this will clear all seat assignments
+    const confirmed = window.confirm(
+      "⚠️ WARNING: This will reset all tables to default layout (1-24) and PERMANENTLY DELETE all seat assignments.\n\n" +
+      "Are you sure you want to continue? This action cannot be undone."
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+
     try {
       setSaveStatus('saving');
       
@@ -873,12 +944,12 @@ const TableManager = () => {
       
       setTables(defaultTables);
       
-      // Save all default tables to database
+      // This will now safely update tables while clearing all seat assignments (intentionally)
       await saveTablesToDatabase(defaultTables);
       
       showToast({
         title: "Tables Reset",
-        description: "All tables restored to default layout (1-24)",
+        description: "All tables restored to default layout (1-24). All seat assignments have been cleared.",
       });
     } catch (error) {
       console.error('Failed to reset tables:', error);
