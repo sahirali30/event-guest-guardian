@@ -39,18 +39,38 @@ const SeatingGrid = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Setup admin context
-  const setupAdminContext = async (): Promise<boolean> => {
-    try {
-      await supabase.rpc('set_config', {
-        setting_name: 'app.current_user_email',
-        setting_value: 'admincode@modivc.com'
-      });
-      return true;
-    } catch (error) {
-      console.error('Failed to setup admin context:', error);
-      return false;
+  // Enhanced admin context setup with retry logic
+  const setupAdminContext = async (retries = 3): Promise<boolean> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await supabase.rpc('set_config', {
+          setting_name: 'app.current_user_email',
+          setting_value: 'admincode@modivc.com'
+        });
+        
+        // Verify the context was set by attempting a simple query
+        const { error: testError } = await supabase
+          .from('table_configurations')
+          .select('id')
+          .limit(1);
+          
+        if (!testError) {
+          console.log('Admin context established successfully');
+          return true;
+        }
+        
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+        }
+      } catch (error) {
+        console.error(`Admin context setup attempt ${attempt} failed:`, error);
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+        }
+      }
     }
+    console.error('Failed to establish admin context after all retries');
+    return false;
   };
 
   // Load tables and guests data
@@ -71,7 +91,13 @@ const SeatingGrid = () => {
           `)
           .order('table_number', { ascending: true });
 
-        if (tablesError) throw tablesError;
+        if (tablesError) {
+          console.error('Error loading table configurations:', tablesError);
+          throw tablesError;
+        }
+
+        console.log('Loaded table configs:', tableConfigs?.length || 0, 'tables');
+        console.log('Sample table config:', tableConfigs?.[0]);
 
         // Transform table data
         const transformedTables = tableConfigs?.map(config => ({
