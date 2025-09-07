@@ -1299,20 +1299,32 @@ const SeatAssignmentForm = ({
   const [note, setNote] = useState(seat.note || '');
   const [useCustomName, setUseCustomName] = useState(false);
   const [assignedGuestNames, setAssignedGuestNames] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [dbSyncLoading, setDbSyncLoading] = useState(false);
 
-  // Normalize names for comparison (trim, lowercase, handle special characters)
+  // Normalize names for comparison
   const normalizeName = (name: string) => {
     return name.trim().toLowerCase().replace(/\s+/g, ' ');
   };
 
-  // Fetch assigned guests from database
+  // Get assigned guests from in-memory data (immediate, reliable)
+  const getInMemoryAssignedGuests = () => {
+    const names = new Set<string>();
+    tables.forEach(table => {
+      table.seats.forEach(tableSeat => {
+        if (tableSeat.guestName && tableSeat.id !== seat.id) {
+          names.add(normalizeName(tableSeat.guestName));
+        }
+      });
+    });
+    return names;
+  };
+
+  // Sync with database in background to catch any missed assignments
   useEffect(() => {
-    const fetchAssignedGuests = async () => {
+    const syncWithDatabase = async () => {
       try {
-        setLoading(true);
+        setDbSyncLoading(true);
         
-        // Set admin context for database access
         await supabase.rpc('set_config', {
           setting_name: 'app.current_user_email',
           setting_value: 'admincode@modivc.com'
@@ -1323,61 +1335,41 @@ const SeatAssignmentForm = ({
           .select('guest_name')
           .not('guest_name', 'is', null);
 
-        if (error) {
-          console.error('Error fetching assigned guests:', error);
-          // Fallback to in-memory data
-          const fallbackNames = new Set<string>();
-          tables.forEach(table => {
-            table.seats.forEach(tableSeat => {
-              if (tableSeat.guestName && tableSeat.id !== seat.id) {
-                fallbackNames.add(normalizeName(tableSeat.guestName));
-              }
-            });
-          });
-          setAssignedGuestNames(fallbackNames);
-        } else {
-          const names = new Set<string>();
-          data?.forEach(assignment => {
+        if (!error && data) {
+          const dbNames = new Set<string>();
+          data.forEach(assignment => {
             if (assignment.guest_name) {
-              names.add(normalizeName(assignment.guest_name));
+              dbNames.add(normalizeName(assignment.guest_name));
             }
           });
           
-          // Also add in-memory assignments that might not be saved yet (excluding current seat)
-          tables.forEach(table => {
-            table.seats.forEach(tableSeat => {
-              if (tableSeat.guestName && tableSeat.id !== seat.id) {
-                names.add(normalizeName(tableSeat.guestName));
-              }
-            });
-          });
-          
-          setAssignedGuestNames(names);
+          // Combine database and in-memory assigned guests
+          const inMemoryNames = getInMemoryAssignedGuests();
+          const combinedNames = new Set([...dbNames, ...inMemoryNames]);
+          setAssignedGuestNames(combinedNames);
+        } else {
+          // Fallback to in-memory data if database query fails
+          setAssignedGuestNames(getInMemoryAssignedGuests());
         }
       } catch (error) {
-        console.error('Error in fetchAssignedGuests:', error);
-        // Fallback to in-memory data
-        const fallbackNames = new Set<string>();
-        tables.forEach(table => {
-          table.seats.forEach(tableSeat => {
-            if (tableSeat.guestName && tableSeat.id !== seat.id) {
-              fallbackNames.add(normalizeName(tableSeat.guestName));
-            }
-          });
-        });
-        setAssignedGuestNames(fallbackNames);
+        console.error('Database sync failed, using in-memory data:', error);
+        setAssignedGuestNames(getInMemoryAssignedGuests());
       } finally {
-        setLoading(false);
+        setDbSyncLoading(false);
       }
     };
 
-    fetchAssignedGuests();
+    // Start with in-memory data immediately for fast rendering
+    setAssignedGuestNames(getInMemoryAssignedGuests());
+    
+    // Then sync with database in background
+    syncWithDatabase();
   }, [seat.id, tables]);
 
   // Filter guests to show only unassigned ones
-  const availableGuests = loading 
-    ? [] 
-    : guests.filter(guest => !assignedGuestNames.has(normalizeName(guest.name)));
+  const availableGuests = guests.filter(guest => 
+    !assignedGuestNames.has(normalizeName(guest.name))
+  );
 
   const handleSubmit = () => {
     const guestName = useCustomName ? customName : selectedGuest;
@@ -1397,15 +1389,13 @@ const SeatAssignmentForm = ({
               setSelectedGuest(value);
               setUseCustomName(false);
             }}
-            disabled={useCustomName || loading}
+            disabled={useCustomName}
           >
             <SelectTrigger>
-              <SelectValue placeholder={loading ? "Loading guests..." : "Select a registered guest"} />
+              <SelectValue placeholder="Select a registered guest" />
             </SelectTrigger>
             <SelectContent>
-              {loading ? (
-                <SelectItem value="" disabled>Loading available guests...</SelectItem>
-              ) : availableGuests.length === 0 ? (
+              {availableGuests.length === 0 ? (
                 <SelectItem value="" disabled>No unassigned guests available</SelectItem>
               ) : (
                 availableGuests.map((guest) => (
