@@ -1185,6 +1185,7 @@ const TableManager = () => {
                         <SeatAssignmentForm
                           seat={seat}
                           guests={guests}
+                          tables={tables}
                           onAssign={(guestName, tag, note) =>
                             assignSeat(table.id, seat.id, guestName, tag, note)
                           }
@@ -1285,16 +1286,31 @@ const SeatAssignmentForm = ({
   seat,
   guests,
   onAssign,
+  tables,
 }: {
   seat: Seat;
   guests: Guest[];
   onAssign: (guestName: string, tag?: string, note?: string) => void;
+  tables: Table[];
 }) => {
   const [selectedGuest, setSelectedGuest] = useState(seat.guestName || '');
   const [customName, setCustomName] = useState('');
   const [tag, setTag] = useState(seat.tag || '');
   const [note, setNote] = useState(seat.note || '');
   const [useCustomName, setUseCustomName] = useState(false);
+
+  // Get list of already assigned guests (excluding current seat)
+  const assignedGuestNames = new Set<string>();
+  tables.forEach(table => {
+    table.seats.forEach(tableSeat => {
+      if (tableSeat.guestName && tableSeat.id !== seat.id) {
+        assignedGuestNames.add(tableSeat.guestName);
+      }
+    });
+  });
+
+  // Filter guests to show only unassigned ones
+  const availableGuests = guests.filter(guest => !assignedGuestNames.has(guest.name));
 
   const handleSubmit = () => {
     const guestName = useCustomName ? customName : selectedGuest;
@@ -1320,7 +1336,7 @@ const SeatAssignmentForm = ({
               <SelectValue placeholder="Select a registered guest" />
             </SelectTrigger>
             <SelectContent>
-              {guests.map((guest) => (
+              {availableGuests.map((guest) => (
                 <SelectItem key={guest.id} value={guest.name}>
                   {guest.name} {guest.type === 'guest' && '(Guest)'}
                 </SelectItem>
