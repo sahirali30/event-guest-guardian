@@ -745,6 +745,38 @@ const TableManager = () => {
     };
   }, [handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
+  const exportSeatingCSV = () => {
+    const csvData = [];
+    csvData.push(['Guest Name', 'Table Number']);
+    
+    tables.forEach(table => {
+      table.seats.forEach(seat => {
+        if (seat.guestName) {
+          csvData.push([seat.guestName, table.number.toString()]);
+        }
+      });
+    });
+    
+    const csvContent = csvData.map(row => 
+      row.map(field => `"${field.replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `seating-assignments-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showToast({
+      title: "CSV Exported",
+      description: "Seating assignments have been exported successfully.",
+    });
+  };
+
   const addSeat = async (tableId: string) => {
     const updatedTables = tables.map(table => {
       if (table.id === tableId && table.seats.length < 14) {
@@ -1060,7 +1092,11 @@ const TableManager = () => {
               </Button>
               <Button onClick={exportLayout} variant="outline" size="sm">
                 <Download className="w-4 h-4 mr-2" />
-                Export
+                Export Layout
+              </Button>
+              <Button onClick={exportSeatingCSV} variant="outline" size="sm">
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
               </Button>
               <label className="cursor-pointer">
                 <Button variant="outline" size="sm" asChild>
