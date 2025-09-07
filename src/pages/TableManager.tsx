@@ -1298,19 +1298,86 @@ const SeatAssignmentForm = ({
   const [tag, setTag] = useState(seat.tag || '');
   const [note, setNote] = useState(seat.note || '');
   const [useCustomName, setUseCustomName] = useState(false);
+  const [assignedGuestNames, setAssignedGuestNames] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
 
-  // Get list of already assigned guests (excluding current seat)
-  const assignedGuestNames = new Set<string>();
-  tables.forEach(table => {
-    table.seats.forEach(tableSeat => {
-      if (tableSeat.guestName && tableSeat.id !== seat.id) {
-        assignedGuestNames.add(tableSeat.guestName);
+  // Normalize names for comparison (trim, lowercase, handle special characters)
+  const normalizeName = (name: string) => {
+    return name.trim().toLowerCase().replace(/\s+/g, ' ');
+  };
+
+  // Fetch assigned guests from database
+  useEffect(() => {
+    const fetchAssignedGuests = async () => {
+      try {
+        setLoading(true);
+        
+        // Set admin context for database access
+        await supabase.rpc('set_config', {
+          setting_name: 'app.current_user_email',
+          setting_value: 'admincode@modivc.com'
+        });
+
+        const { data, error } = await supabase
+          .from('seat_assignments')
+          .select('guest_name')
+          .not('guest_name', 'is', null);
+
+        if (error) {
+          console.error('Error fetching assigned guests:', error);
+          // Fallback to in-memory data
+          const fallbackNames = new Set<string>();
+          tables.forEach(table => {
+            table.seats.forEach(tableSeat => {
+              if (tableSeat.guestName && tableSeat.id !== seat.id) {
+                fallbackNames.add(normalizeName(tableSeat.guestName));
+              }
+            });
+          });
+          setAssignedGuestNames(fallbackNames);
+        } else {
+          const names = new Set<string>();
+          data?.forEach(assignment => {
+            if (assignment.guest_name) {
+              names.add(normalizeName(assignment.guest_name));
+            }
+          });
+          
+          // Also add in-memory assignments that might not be saved yet (excluding current seat)
+          tables.forEach(table => {
+            table.seats.forEach(tableSeat => {
+              if (tableSeat.guestName && tableSeat.id !== seat.id) {
+                names.add(normalizeName(tableSeat.guestName));
+              }
+            });
+          });
+          
+          setAssignedGuestNames(names);
+        }
+      } catch (error) {
+        console.error('Error in fetchAssignedGuests:', error);
+        // Fallback to in-memory data
+        const fallbackNames = new Set<string>();
+        tables.forEach(table => {
+          table.seats.forEach(tableSeat => {
+            if (tableSeat.guestName && tableSeat.id !== seat.id) {
+              fallbackNames.add(normalizeName(tableSeat.guestName));
+            }
+          });
+        });
+        setAssignedGuestNames(fallbackNames);
+      } finally {
+        setLoading(false);
       }
-    });
-  });
+    };
+
+    fetchAssignedGuests();
+  }, [seat.id, tables]);
 
   // Filter guests to show only unassigned ones
-  const availableGuests = guests.filter(guest => !assignedGuestNames.has(guest.name));
+  const availableGuests = loading 
+    ? [] 
+    : guests.filter(guest => !assignedGuestNames.has(normalizeName(guest.name)));
 
   const handleSubmit = () => {
     const guestName = useCustomName ? customName : selectedGuest;
@@ -1330,17 +1397,23 @@ const SeatAssignmentForm = ({
               setSelectedGuest(value);
               setUseCustomName(false);
             }}
-            disabled={useCustomName}
+            disabled={useCustomName || loading}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Select a registered guest" />
+              <SelectValue placeholder={loading ? "Loading guests..." : "Select a registered guest"} />
             </SelectTrigger>
             <SelectContent>
-              {availableGuests.map((guest) => (
-                <SelectItem key={guest.id} value={guest.name}>
-                  {guest.name} {guest.type === 'guest' && '(Guest)'}
-                </SelectItem>
-              ))}
+              {loading ? (
+                <SelectItem value="" disabled>Loading available guests...</SelectItem>
+              ) : availableGuests.length === 0 ? (
+                <SelectItem value="" disabled>No unassigned guests available</SelectItem>
+              ) : (
+                availableGuests.map((guest) => (
+                  <SelectItem key={guest.id} value={guest.name}>
+                    {guest.name} {guest.type === 'guest' && '(Guest)'}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
           
