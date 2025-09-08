@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Search, Check, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import hallFloorPlan from '@/assets/hall-floor-plan.png';
+import modiLogo from '@/assets/modi-logo.svg';
 
 interface Seat {
   angle: number;
@@ -120,35 +122,39 @@ const EventCheckIn = () => {
     try {
       await setupAdminContext();
       
-      const { data: invitedGuests, error: invitedError } = await supabase
-        .from('invited_guests')
-        .select('name, email');
+      // Only load guests who are registered to attend (will_attend = true)
+      const { data: registrations, error: registrationsError } = await supabase
+        .from('registrations')
+        .select(`
+          invited_guest_id,
+          invited_guests!inner(name, email),
+          guest_registrations(guest_name, guest_email)
+        `)
+        .eq('will_attend', true);
 
-      const { data: guestRegistrations, error: registrationsError } = await supabase
-        .from('guest_registrations')
-        .select('guest_name, guest_email');
-
-      if (invitedError) throw invitedError;
       if (registrationsError) throw registrationsError;
 
       const combinedGuests: Guest[] = [];
       
-      // Add invited guests
-      invitedGuests?.forEach(guest => {
-        combinedGuests.push({
-          name: guest.name.trim(),
-          email: guest.email,
-        });
-      });
-
-      // Add guest registrations
-      guestRegistrations?.forEach(registration => {
-        if (registration.guest_name) {
+      // Add invited guests who are attending
+      registrations?.forEach((registration: any) => {
+        const invitedGuest = registration.invited_guests;
+        if (invitedGuest && !combinedGuests.some(g => g.email === invitedGuest.email)) {
           combinedGuests.push({
-            name: registration.guest_name.trim(),
-            email: registration.guest_email || undefined,
+            name: invitedGuest.name.trim(),
+            email: invitedGuest.email,
           });
         }
+        
+        // Add their registered guests
+        registration.guest_registrations?.forEach((guest: any) => {
+          if (guest.guest_name && !combinedGuests.some(g => g.name === guest.guest_name && g.email === guest.guest_email)) {
+            combinedGuests.push({
+              name: guest.guest_name.trim(),
+              email: guest.guest_email || undefined,
+            });
+          }
+        });
       });
 
       // Find table assignments for each guest
@@ -391,7 +397,7 @@ const EventCheckIn = () => {
       </div>
 
       <div className="container mx-auto p-4">
-        <div className="flex gap-6 h-[calc(100vh-120px)]">
+        <div className="flex gap-6 h-[calc(100vh-200px)]">
           {/* Table Layout */}
           <div className="flex-1">
             <div className="border rounded-lg p-4 h-full bg-card">
@@ -400,8 +406,10 @@ const EventCheckIn = () => {
                 ref={canvasRef}
                 className="relative w-full h-full overflow-auto bg-muted/10 rounded border-2 border-dashed border-muted-foreground/20"
                 style={{
-                  backgroundImage: 'radial-gradient(circle, hsl(var(--muted-foreground)) 1px, transparent 1px)',
-                  backgroundSize: '20px 20px'
+                  backgroundImage: `url(${hallFloorPlan})`,
+                  backgroundSize: 'contain',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'center'
                 }}
               >
                 <svg
@@ -504,7 +512,7 @@ const EventCheckIn = () => {
           </div>
 
           {/* Check-In Panel */}
-          <div className="w-96">
+          <div className="w-[500px]">
             <Card className="h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -542,7 +550,7 @@ const EventCheckIn = () => {
                         <div className="space-y-2">
                           <div>
                             <h3 className="font-medium">{guest.name}</h3>
-                            <p className="text-sm text-muted-foreground">
+                            <p className={`text-sm ${guest.tableNumber ? 'text-muted-foreground' : 'text-red-600 font-medium'}`}>
                               {guest.tableNumber ? `Table ${guest.tableNumber}` : 'No table assigned'}
                             </p>
                           </div>
@@ -603,6 +611,18 @@ const EventCheckIn = () => {
           </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="bg-card border-t py-6">
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-center gap-3">
+            <img src={modiLogo} alt="Modi Ventures" className="w-8 h-8" />
+            <span className="text-sm font-medium text-muted-foreground">
+              Powered by Modi Ventures
+            </span>
+          </div>
+        </div>
+      </footer>
 
       {/* Table Guests Dialog */}
       <Dialog open={!!selectedTable} onOpenChange={() => setSelectedTable(null)}>
