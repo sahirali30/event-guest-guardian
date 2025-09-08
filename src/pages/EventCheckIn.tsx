@@ -52,6 +52,7 @@ const EventCheckIn = () => {
   const [loading, setLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [processingGuest, setProcessingGuest] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const setupAdminContext = useCallback(async () => {
@@ -212,66 +213,140 @@ const EventCheckIn = () => {
   };
 
   const handleCheckIn = async (guest: Guest) => {
+    // Validate guest is not already checked in
+    if (isGuestCheckedIn(guest.name)) {
+      toast({
+        title: "Already Checked In",
+        description: `${guest.name} is already checked in.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate table assignment if required
+    if (!guest.tableNumber) {
+      toast({
+        title: "No Table Assigned",
+        description: `${guest.name} does not have a table assignment. Please assign a table first.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setProcessingGuest(guest.name);
+    
     try {
+      console.log('Starting check-in process for guest:', guest.name, 'Table:', guest.tableNumber);
+      
       await setupAdminContext();
+      console.log('Admin context setup completed');
+      
+      const checkInData = {
+        guest_name: guest.name.trim(),
+        table_number: guest.tableNumber,
+        checked_in_by: 'admincode@modivc.com',
+      };
+      
+      console.log('Inserting check-in data:', checkInData);
       
       const { error } = await supabase
         .from('guest_checkins')
-        .insert({
-          guest_name: guest.name,
-          table_number: guest.tableNumber || 0,
-          checked_in_by: 'admincode@modivc.com',
-        });
+        .insert(checkInData);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error during check-in:', error);
+        throw error;
+      }
+
+      console.log('Check-in successful for:', guest.name);
 
       toast({
         title: "Success",
-        description: `${guest.name} has been checked in.`,
+        description: `${guest.name} has been checked in to Table ${guest.tableNumber}.`,
       });
 
-      loadCheckins();
-    } catch (error) {
+      await loadCheckins();
+    } catch (error: any) {
       console.error('Error checking in guest:', error);
+      
+      let errorMessage = "Failed to check in guest.";
+      if (error?.message?.includes('duplicate')) {
+        errorMessage = "Guest is already checked in.";
+      } else if (error?.message?.includes('table_number')) {
+        errorMessage = "Invalid table number assignment.";
+      } else if (error?.code) {
+        errorMessage = `Database error (${error.code}): ${error.message}`;
+      }
+      
       toast({
-        title: "Error",
-        description: "Failed to check in guest.",
+        title: "Check-In Failed",
+        description: errorMessage,
         variant: "destructive",
       });
+    } finally {
+      setProcessingGuest(null);
     }
   };
 
   const handleCheckOut = async (guest: Guest) => {
+    setProcessingGuest(guest.name);
+    
     try {
+      console.log('Starting check-out process for guest:', guest.name);
+      
       await setupAdminContext();
+      console.log('Admin context setup completed for check-out');
       
       const checkin = checkins.find(c => 
         c.guest_name.toLowerCase().trim() === guest.name.toLowerCase().trim() && 
         !c.checked_out_at
       );
 
-      if (!checkin) return;
+      if (!checkin) {
+        console.log('No active check-in found for guest:', guest.name);
+        toast({
+          title: "Not Checked In",
+          description: `${guest.name} is not currently checked in.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log('Updating check-out for checkin ID:', checkin.id);
 
       const { error } = await supabase
         .from('guest_checkins')
         .update({ checked_out_at: new Date().toISOString() })
         .eq('id', checkin.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error during check-out:', error);
+        throw error;
+      }
+
+      console.log('Check-out successful for:', guest.name);
 
       toast({
         title: "Success",
         description: `${guest.name} has been checked out.`,
       });
 
-      loadCheckins();
-    } catch (error) {
+      await loadCheckins();
+    } catch (error: any) {
       console.error('Error checking out guest:', error);
+      
+      let errorMessage = "Failed to check out guest.";
+      if (error?.code) {
+        errorMessage = `Database error (${error.code}): ${error.message}`;
+      }
+      
       toast({
-        title: "Error",
-        description: "Failed to check out guest.",
+        title: "Check-Out Failed",
+        description: errorMessage,
         variant: "destructive",
       });
+    } finally {
+      setProcessingGuest(null);
     }
   };
 
@@ -514,9 +589,14 @@ const EventCheckIn = () => {
                                 size="sm"
                                 onClick={() => handleCheckIn(guest)}
                                 className="flex-1"
+                                disabled={processingGuest === guest.name || !guest.tableNumber}
                               >
-                                <Check className="w-4 h-4 mr-1" />
-                                Check In
+                                {processingGuest === guest.name ? (
+                                  <div className="w-4 h-4 mr-1 animate-spin rounded-full border-2 border-b-transparent border-current" />
+                                ) : (
+                                  <Check className="w-4 h-4 mr-1" />
+                                )}
+                                {processingGuest === guest.name ? 'Processing...' : 'Check In'}
                               </Button>
                             ) : (
                               <Button
@@ -524,9 +604,14 @@ const EventCheckIn = () => {
                                 variant="outline"
                                 onClick={() => handleCheckOut(guest)}
                                 className="flex-1"
+                                disabled={processingGuest === guest.name}
                               >
-                                <X className="w-4 h-4 mr-1" />
-                                Check Out
+                                {processingGuest === guest.name ? (
+                                  <div className="w-4 h-4 mr-1 animate-spin rounded-full border-2 border-b-transparent border-current" />
+                                ) : (
+                                  <X className="w-4 h-4 mr-1" />
+                                )}
+                                {processingGuest === guest.name ? 'Processing...' : 'Check Out'}
                               </Button>
                             )}
                           </div>
