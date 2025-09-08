@@ -1098,13 +1098,11 @@ const TableManager = () => {
                 <Download className="w-4 h-4 mr-2" />
                 Export CSV
               </Button>
-              <Button 
-                onClick={() => window.open('/event-checkin', '_blank')} 
-                variant="default" 
-                size="sm"
-              >
-                <Check className="w-4 h-4 mr-2" />
-                Event Day Check In
+              <Button asChild variant="default" size="sm">
+                <Link to="/event-checkin">
+                  <Check className="w-4 h-4 mr-2" />
+                  Event Day Check In
+                </Link>
               </Button>
               <label className="cursor-pointer">
                 <Button variant="outline" size="sm" asChild>

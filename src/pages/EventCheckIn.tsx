@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Search, Check, X } from 'lucide-react';
+import { ArrowLeft, Search, Check, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Seat {
@@ -47,6 +48,9 @@ const EventCheckIn = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredGuests, setFilteredGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const setupAdminContext = useCallback(async () => {
     try {
@@ -276,6 +280,22 @@ const EventCheckIn = () => {
     };
   };
 
+  const handleTableClick = (table: Table) => {
+    setSelectedTable(table);
+  };
+
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(prev * 1.2, 3));
+  };
+
+  const handleZoomOut = () => {
+    setZoom(prev => Math.max(prev / 1.2, 0.5));
+  };
+
+  const handleResetZoom = () => {
+    setZoom(1);
+  };
+
   useEffect(() => {
     const initializeData = async () => {
       setLoading(true);
@@ -315,6 +335,10 @@ const EventCheckIn = () => {
     );
   }
 
+  const tableGuests = selectedTable
+    ? guests.filter(guest => guest.tableNumber === selectedTable.number)
+    : [];
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -332,41 +356,99 @@ const EventCheckIn = () => {
               </Button>
               <h1 className="text-2xl font-bold">Event Day Check-In</h1>
             </div>
+            
+            {/* Zoom Controls */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleZoomOut}
+                disabled={zoom <= 0.5}
+              >
+                <ZoomOut className="w-4 h-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground self-center min-w-[60px] text-center">
+                {Math.round(zoom * 100)}%
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleZoomIn}
+                disabled={zoom >= 3}
+              >
+                <ZoomIn className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetZoom}
+              >
+                <RotateCcw className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="container mx-auto p-4">
         <div className="flex gap-6 h-[calc(100vh-120px)]">
-          {/* Table Layout - Read Only */}
+          {/* Table Layout */}
           <div className="flex-1">
             <div className="border rounded-lg p-4 h-full bg-card">
-              <h2 className="text-lg font-semibold mb-4">Table Layout</h2>
-              <div className="relative w-full h-full overflow-auto">
+              <h2 className="text-lg font-semibold mb-4">Table Layout (Click tables to view guests)</h2>
+              <div 
+                ref={canvasRef}
+                className="relative w-full h-full overflow-auto bg-muted/10 rounded border-2 border-dashed border-muted-foreground/20"
+                style={{
+                  backgroundImage: 'radial-gradient(circle, hsl(var(--muted-foreground)) 1px, transparent 1px)',
+                  backgroundSize: '20px 20px'
+                }}
+              >
                 <svg
-                  viewBox="0 0 1200 800"
-                  className="w-full h-full border-2 border-dashed border-muted-foreground/20"
+                  viewBox="0 0 2000 1400"
+                  className="w-full h-full"
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                    minWidth: `${2000 * zoom}px`,
+                    minHeight: `${1400 * zoom}px`
+                  }}
                 >
                   {tables.map((table) => (
-                    <g key={table.id}>
+                    <g 
+                      key={table.id}
+                      onClick={() => handleTableClick(table)}
+                      className="cursor-pointer hover:opacity-80 transition-opacity"
+                    >
                       {/* Table Circle */}
                       <circle
                         cx={table.x}
                         cy={table.y}
                         r={40}
-                        fill="hsl(var(--muted))"
+                        fill="hsl(var(--card))"
                         stroke="hsl(var(--border))"
                         strokeWidth={2}
+                        className="drop-shadow-md"
                       />
                       
                       {/* Table Number */}
                       <text
                         x={table.x}
-                        y={table.y + 5}
+                        y={table.y - 5}
                         textAnchor="middle"
-                        className="fill-foreground font-medium text-sm"
+                        className="fill-foreground font-bold text-base pointer-events-none"
                       >
                         {table.number}
+                      </text>
+                      
+                      {/* Table Label */}
+                      <text
+                        x={table.x}
+                        y={table.y + 10}
+                        textAnchor="middle"
+                        className="fill-muted-foreground text-xs pointer-events-none"
+                      >
+                        {table.label}
                       </text>
                       
                       {/* Seats */}
@@ -379,25 +461,36 @@ const EventCheckIn = () => {
                             <circle
                               cx={seatPos.x + 8}
                               cy={seatPos.y + 8}
-                              r={8}
+                              r={12}
                               fill={
                                 isCheckedIn 
                                   ? "hsl(142, 76%, 36%)" // Green for checked in
                                   : seat.guestName 
                                     ? "hsl(var(--primary))" 
-                                    : "hsl(var(--muted-foreground))"
+                                    : "hsl(var(--muted))"
                               }
                               stroke="hsl(var(--border))"
-                              strokeWidth={1}
+                              strokeWidth={2}
+                              className="drop-shadow-sm"
                             />
                             {seat.guestName && (
                               <text
                                 x={seatPos.x + 8}
-                                y={seatPos.y - 10}
+                                y={seatPos.y - 8}
                                 textAnchor="middle"
-                                className="fill-foreground text-xs font-medium"
+                                className="fill-foreground text-xs font-medium pointer-events-none"
                               >
                                 {seat.guestName.split(' ').map(name => name[0]).join('')}
+                              </text>
+                            )}
+                            {isCheckedIn && (
+                              <text
+                                x={seatPos.x + 8}
+                                y={seatPos.y + 13}
+                                textAnchor="middle"
+                                className="fill-white text-xs font-bold pointer-events-none"
+                              >
+                                ✓
                               </text>
                             )}
                           </g>
@@ -510,6 +603,45 @@ const EventCheckIn = () => {
           </div>
         </div>
       </div>
+
+      {/* Table Guests Dialog */}
+      <Dialog open={!!selectedTable} onOpenChange={() => setSelectedTable(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Table {selectedTable?.number} - {selectedTable?.label}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-96 overflow-auto">
+            {tableGuests.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">
+                No guests assigned to this table
+              </p>
+            ) : (
+              tableGuests.map((guest, index) => {
+                const isCheckedIn = isGuestCheckedIn(guest.name);
+                return (
+                  <Card key={index} className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium">{guest.name}</h4>
+                        {guest.email && (
+                          <p className="text-sm text-muted-foreground">{guest.email}</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        {isCheckedIn ? (
+                          <span className="text-green-600 font-medium text-sm">✓ Checked In</span>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">Not checked in</span>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
