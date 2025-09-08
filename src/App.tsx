@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import TableManager from "./pages/TableManager";
 import SeatingGrid from "./pages/SeatingGrid";
+import EventCheckIn from "./pages/EventCheckIn";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/tables" element={<TableManager />} />
           <Route path="/seating-grid" element={<SeatingGrid />} />
+          <Route path="/event-checkin" element={<EventCheckIn />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

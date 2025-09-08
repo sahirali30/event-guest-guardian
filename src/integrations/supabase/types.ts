@@ -32,6 +32,39 @@ export type Database = {
         }
         Relationships: []
       }
+      guest_checkins: {
+        Row: {
+          checked_in_at: string
+          checked_in_by: string
+          checked_out_at: string | null
+          created_at: string
+          guest_name: string
+          id: string
+          table_number: number
+          updated_at: string
+        }
+        Insert: {
+          checked_in_at?: string
+          checked_in_by: string
+          checked_out_at?: string | null
+          created_at?: string
+          guest_name: string
+          id?: string
+          table_number: number
+          updated_at?: string
+        }
+        Update: {
+          checked_in_at?: string
+          checked_in_by?: string
+          checked_out_at?: string | null
+          created_at?: string
+          guest_name?: string
+          id?: string
+          table_number?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       guest_registrations: {
         Row: {
           created_at: string

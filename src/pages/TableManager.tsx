@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle, X, Grid3X3 } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Download, Upload, ZoomIn, ZoomOut, RotateCcw, AlertCircle, CheckCircle, X, Grid3X3, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -1097,6 +1097,14 @@ const TableManager = () => {
               <Button onClick={exportSeatingCSV} variant="outline" size="sm">
                 <Download className="w-4 h-4 mr-2" />
                 Export CSV
+              </Button>
+              <Button 
+                onClick={() => window.open('/event-checkin', '_blank')} 
+                variant="default" 
+                size="sm"
+              >
+                <Check className="w-4 h-4 mr-2" />
+                Event Day Check In
               </Button>
               <label className="cursor-pointer">
                 <Button variant="outline" size="sm" asChild>
