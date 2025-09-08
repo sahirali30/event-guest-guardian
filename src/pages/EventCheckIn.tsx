@@ -397,122 +397,75 @@ const EventCheckIn = () => {
       </div>
 
       <div className="container mx-auto p-4">
-        <div className="flex gap-6 h-[calc(100vh-200px)]">
+        <div className="flex h-[calc(100vh-140px)]">
           {/* Table Layout */}
-          <div className="flex-1">
-            <div className="border rounded-lg p-4 h-full bg-card">
-              <h2 className="text-lg font-semibold mb-4">Table Layout (Click tables to view guests)</h2>
-              <div 
-                ref={canvasRef}
-                className="relative w-full h-full overflow-auto bg-muted/10 rounded border-2 border-dashed border-muted-foreground/20"
-                style={{
-                  backgroundImage: `url(${hallFloorPlan})`,
-                  backgroundSize: 'contain',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'center'
-                }}
-              >
-                <svg
-                  viewBox="0 0 2000 1400"
-                  className="w-full h-full"
-                  style={{
-                    transform: `scale(${zoom})`,
-                    transformOrigin: 'top left',
-                    minWidth: `${2000 * zoom}px`,
-                    minHeight: `${1400 * zoom}px`
-                  }}
-                >
-                  {tables.map((table) => (
-                    <g 
-                      key={table.id}
-                      onClick={() => handleTableClick(table)}
-                      className="cursor-pointer hover:opacity-80 transition-opacity"
-                    >
-                      {/* Table Circle */}
-                      <circle
-                        cx={table.x}
-                        cy={table.y}
-                        r={40}
-                        fill="hsl(var(--card))"
-                        stroke="hsl(var(--border))"
-                        strokeWidth={2}
-                        className="drop-shadow-md"
-                      />
-                      
-                      {/* Table Number */}
-                      <text
-                        x={table.x}
-                        y={table.y - 5}
-                        textAnchor="middle"
-                        className="fill-foreground font-bold text-base pointer-events-none"
+          <div className="flex-1 overflow-auto" ref={canvasRef}>
+            <div 
+              className="relative bg-muted/20"
+              style={{
+                width: '2000px',
+                height: '1400px',
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top left',
+                backgroundImage: 'url("/lovable-uploads/a3f76216-9fc3-4634-8419-d4cbdbef2e73.png")',
+                backgroundSize: 'contain',
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'center',
+              }}
+            >
+              {tables.map((table) => (
+                <div key={table.id} className="absolute">
+                  {/* Table */}
+                  <div
+                    className={`absolute w-20 h-20 rounded-full border-2 cursor-pointer flex items-center justify-center text-xs font-medium hover:border-primary/50 ${
+                      selectedTable?.id === table.id
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-card text-foreground'
+                    }`}
+                    style={{
+                      left: table.x - 40,
+                      top: table.y - 40,
+                    }}
+                    onClick={() => handleTableClick(table)}
+                  >
+                    <div className="text-center">
+                      <div className="font-bold">{table.number}</div>
+                      <div className="text-[10px] text-muted-foreground leading-none">{table.label}</div>
+                    </div>
+                  </div>
+                  
+                  {/* Seats */}
+                  {table.seats.map((seat, seatIndex) => {
+                    const seatPos = getSeatPosition(table, seatIndex);
+                    const isCheckedIn = seat.guestName && isGuestCheckedIn(seat.guestName);
+                    
+                    return (
+                      <div
+                        key={seatIndex}
+                        className={`absolute w-6 h-6 rounded-full border flex items-center justify-center text-[8px] font-bold ${
+                          isCheckedIn 
+                            ? 'bg-green-600 border-green-700 text-white' // Green for checked in
+                            : seat.guestName 
+                              ? 'bg-primary border-primary-foreground text-primary-foreground' 
+                              : 'bg-muted border-muted-foreground text-muted-foreground'
+                        }`}
+                        style={{
+                          left: seatPos.x,
+                          top: seatPos.y,
+                        }}
+                        title={seat.guestName || 'Empty seat'}
                       >
-                        {table.number}
-                      </text>
-                      
-                      {/* Table Label */}
-                      <text
-                        x={table.x}
-                        y={table.y + 10}
-                        textAnchor="middle"
-                        className="fill-muted-foreground text-xs pointer-events-none"
-                      >
-                        {table.label}
-                      </text>
-                      
-                      {/* Seats */}
-                      {table.seats.map((seat, seatIndex) => {
-                        const seatPos = getSeatPosition(table, seatIndex);
-                        const isCheckedIn = seat.guestName && isGuestCheckedIn(seat.guestName);
-                        
-                        return (
-                          <g key={seatIndex}>
-                            <circle
-                              cx={seatPos.x + 8}
-                              cy={seatPos.y + 8}
-                              r={12}
-                              fill={
-                                isCheckedIn 
-                                  ? "hsl(142, 76%, 36%)" // Green for checked in
-                                  : seat.guestName 
-                                    ? "hsl(var(--primary))" 
-                                    : "hsl(var(--muted))"
-                              }
-                              stroke="hsl(var(--border))"
-                              strokeWidth={2}
-                              className="drop-shadow-sm"
-                            />
-                            {seat.guestName && (
-                              <text
-                                x={seatPos.x + 8}
-                                y={seatPos.y - 8}
-                                textAnchor="middle"
-                                className="fill-foreground text-xs font-medium pointer-events-none"
-                              >
-                                {seat.guestName.split(' ').map(name => name[0]).join('')}
-                              </text>
-                            )}
-                            {isCheckedIn && (
-                              <text
-                                x={seatPos.x + 8}
-                                y={seatPos.y + 13}
-                                textAnchor="middle"
-                                className="fill-white text-xs font-bold pointer-events-none"
-                              >
-                                ✓
-                              </text>
-                            )}
-                          </g>
-                        );
-                      })}
-                    </g>
-                  ))}
-                </svg>
-              </div>
+                        {isCheckedIn ? '✓' : seat.guestName ? seat.guestName.split(' ').map(name => name[0]).join('') : ''}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
 
           {/* Check-In Panel */}
-          <div className="w-[500px]">
+          <div className="w-[600px]">
             <Card className="h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -550,7 +503,7 @@ const EventCheckIn = () => {
                         <div className="space-y-2">
                           <div>
                             <h3 className="font-medium">{guest.name}</h3>
-                            <p className={`text-sm ${guest.tableNumber ? 'text-muted-foreground' : 'text-red-600 font-medium'}`}>
+                            <p className={`text-sm ${guest.tableNumber ? 'text-muted-foreground' : 'text-red-500 font-semibold'}`}>
                               {guest.tableNumber ? `Table ${guest.tableNumber}` : 'No table assigned'}
                             </p>
                           </div>
@@ -612,17 +565,6 @@ const EventCheckIn = () => {
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="bg-card border-t py-6">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-center gap-3">
-            <img src={modiLogo} alt="Modi Ventures" className="w-8 h-8" />
-            <span className="text-sm font-medium text-muted-foreground">
-              Powered by Modi Ventures
-            </span>
-          </div>
-        </div>
-      </footer>
 
       {/* Table Guests Dialog */}
       <Dialog open={!!selectedTable} onOpenChange={() => setSelectedTable(null)}>
