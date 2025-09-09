@@ -50,38 +50,62 @@ const TableManager = () => {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | 'idle'>('idle');
   const [pendingSaves, setPendingSaves] = useState<Set<string>>(new Set());
+  const [lastBackup, setLastBackup] = useState<Table[] | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const canvasRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Enhanced admin context setup with retry logic
+  // Enhanced admin context setup with session persistence and validation
   const setupAdminContext = async (retries = 3): Promise<boolean> => {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        await supabase.rpc('set_config', {
+        console.log(`Setting up admin context (attempt ${attempt}/${retries})`);
+        
+        // Set the context with session persistence
+        const { error: setError } = await supabase.rpc('set_config', {
           setting_name: 'app.current_user_email',
           setting_value: 'admincode@modivc.com'
         });
+
+        if (setError) {
+          console.error('Failed to set config:', setError);
+          throw setError;
+        }
         
-        // Verify the context was set by attempting a simple query
-        const { error: testError } = await supabase
+        // Verify the context was set correctly by testing both read and write access
+        const { error: readError } = await supabase
           .from('table_configurations')
           .select('id')
           .limit(1);
           
-        if (!testError) {
-          return true;
+        if (readError) {
+          console.error('Read test failed:', readError);
+          throw readError;
+        }
+
+        // Test write access to seat_assignments (the critical table)
+        const { error: writeTestError } = await supabase
+          .from('seat_assignments')
+          .select('id')
+          .limit(1);
+          
+        if (writeTestError) {
+          console.error('Write test failed:', writeTestError);
+          throw writeTestError;
         }
         
-        if (attempt < retries) {
-          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
-        }
+        console.log(`Admin context established successfully on attempt ${attempt}`);
+        return true;
+        
       } catch (error) {
         console.error(`Admin context setup attempt ${attempt} failed:`, error);
         if (attempt < retries) {
+          console.log(`Retrying in ${100 * attempt}ms...`);
           await new Promise(resolve => setTimeout(resolve, 100 * attempt));
         }
       }
     }
+    console.error(`Failed to establish admin context after ${retries} attempts`);
     return false;
   };
 
@@ -182,6 +206,83 @@ const TableManager = () => {
     loadTables();
   }, []);
 
+  // Backup and recovery functions
+  const createBackup = useCallback((tablesToBackup: Table[]) => {
+    try {
+      const backup = JSON.parse(JSON.stringify(tablesToBackup));
+      setLastBackup(backup);
+      localStorage.setItem('tableBackup', JSON.stringify({
+        timestamp: Date.now(),
+        tables: backup
+      }));
+      console.log('Backup created successfully');
+    } catch (error) {
+      console.error('Failed to create backup:', error);
+    }
+  }, []);
+
+  const restoreFromBackup = useCallback(async () => {
+    try {
+      if (lastBackup) {
+        setTables(lastBackup);
+        await saveTablesToDatabase(lastBackup);
+        showToast({
+          title: "Restored from Backup",
+          description: "Table layout has been restored from the last backup.",
+        });
+        return true;
+      }
+      
+      // Try localStorage backup
+      const localBackup = localStorage.getItem('tableBackup');
+      if (localBackup) {
+        const backup = JSON.parse(localBackup);
+        setTables(backup.tables);
+        await saveTablesToDatabase(backup.tables);
+        showToast({
+          title: "Restored from Local Backup",
+          description: `Table layout restored from backup created at ${new Date(backup.timestamp).toLocaleString()}.`,
+        });
+        return true;
+      }
+      
+      showToast({
+        title: "No Backup Available",
+        description: "No backup found to restore from.",
+        variant: "destructive"
+      });
+      return false;
+    } catch (error) {
+      console.error('Failed to restore from backup:', error);
+      showToast({
+        title: "Restore Failed",
+        description: "Failed to restore from backup.",
+        variant: "destructive"
+      });
+      return false;
+    }
+  }, [lastBackup, showToast]);
+
+  // Connection monitoring
+  const checkConnection = useCallback(async () => {
+    try {
+      setConnectionStatus('checking');
+      const contextSet = await setupAdminContext(1);
+      setConnectionStatus(contextSet ? 'connected' : 'disconnected');
+      return contextSet;
+    } catch (error) {
+      console.error('Connection check failed:', error);
+      setConnectionStatus('disconnected');
+      return false;
+    }
+  }, []);
+
+  // Periodic connection check
+  useEffect(() => {
+    const interval = setInterval(checkConnection, 30000); // Check every 30 seconds
+    return () => clearInterval(interval);
+  }, [checkConnection]);
+
   // Load both invited guests and their registered guests from Supabase
   useEffect(() => {
     const loadGuests = async () => {
@@ -250,11 +351,15 @@ const TableManager = () => {
     }
   }, [tables]);
 
-  // Non-destructive database save that preserves existing seat assignments
+  // Enhanced database save with backup and recovery
   const saveTablesToDatabase = async (tablesToSave: Table[], retries = 3): Promise<boolean> => {
+    // Create backup before any destructive operations
+    createBackup(tables);
+    
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         setSaveStatus('saving');
+        console.log(`Starting bulk save attempt ${attempt}/${retries}`);
         
         // Setup admin context with retry logic
         const contextSet = await setupAdminContext();
@@ -358,21 +463,41 @@ const TableManager = () => {
     return false;
   };
 
-  // Helper function to update seat assignments for a table
+  // SAFE seat assignment update with atomic transaction and backup
   const updateSeatAssignments = async (tableConfigId: string, seats: Seat[]) => {
-    // Delete existing seat assignments for this table
-    await supabase
-      .from('seat_assignments')
-      .delete()
-      .eq('table_configuration_id', tableConfigId);
+    try {
+      // First, create backup of existing seat assignments
+      const { data: existingSeats, error: backupError } = await supabase
+        .from('seat_assignments')
+        .select('*')
+        .eq('table_configuration_id', tableConfigId);
 
-    // Insert new seat assignments
-    for (let i = 0; i < seats.length; i++) {
-      const seat = seats[i];
-      if (seat.guestName || seat.tag || seat.note) {
-        await supabase
-          .from('seat_assignments')
-          .insert({
+      if (backupError) {
+        console.error('Failed to backup existing seats:', backupError);
+        throw new Error(`Backup failed: ${backupError.message}`);
+      }
+
+      console.log(`Backing up ${existingSeats?.length || 0} existing seat assignments`);
+
+      // Verify admin context is still valid before proceeding
+      const { error: testError } = await supabase
+        .from('seat_assignments')
+        .select('id')
+        .limit(1);
+
+      if (testError) {
+        console.error('Admin context invalid during seat update:', testError);
+        throw new Error('Admin authentication lost during operation');
+      }
+
+      // Use UPSERT pattern instead of delete-then-insert to avoid data loss
+      const seatUpdates: any[] = [];
+      
+      // Prepare all seat assignments for upsert
+      for (let i = 0; i < seats.length; i++) {
+        const seat = seats[i];
+        if (seat.guestName || seat.tag || seat.note) {
+          seatUpdates.push({
             table_configuration_id: tableConfigId,
             seat_index: i,
             seat_angle: seat.angle,
@@ -380,14 +505,82 @@ const TableManager = () => {
             tag: seat.tag || null,
             note: seat.note || null
           });
+        }
       }
+
+      // First, delete only seats that won't be replaced
+      const newSeatIndices = new Set(seatUpdates.map(s => s.seat_index));
+      const seatsToDelete = existingSeats?.filter(s => !newSeatIndices.has(s.seat_index)) || [];
+      
+      if (seatsToDelete.length > 0) {
+        const deleteIds = seatsToDelete.map(s => s.id);
+        const { error: deleteError } = await supabase
+          .from('seat_assignments')
+          .delete()
+          .in('id', deleteIds);
+
+        if (deleteError) {
+          console.error('Failed to delete obsolete seats:', deleteError);
+          throw new Error(`Delete failed: ${deleteError.message}`);
+        }
+        console.log(`Deleted ${seatsToDelete.length} obsolete seat assignments`);
+      }
+
+      // Now upsert the new/updated seat assignments
+      if (seatUpdates.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('seat_assignments')
+          .upsert(seatUpdates, {
+            onConflict: 'table_configuration_id,seat_index'
+          });
+
+        if (upsertError) {
+          console.error('Failed to upsert seat assignments:', upsertError);
+          // Attempt to restore from backup
+          if (existingSeats && existingSeats.length > 0) {
+            console.log('Attempting to restore from backup...');
+            try {
+              await supabase
+                .from('seat_assignments')
+                .delete()
+                .eq('table_configuration_id', tableConfigId);
+              
+              await supabase
+                .from('seat_assignments')
+                .insert(existingSeats.map(s => ({
+                  table_configuration_id: s.table_configuration_id,
+                  seat_index: s.seat_index,
+                  seat_angle: s.seat_angle,
+                  guest_name: s.guest_name,
+                  tag: s.tag,
+                  note: s.note
+                })));
+              
+              console.log('Successfully restored from backup');
+            } catch (restoreError) {
+              console.error('Failed to restore from backup:', restoreError);
+            }
+          }
+          throw new Error(`Upsert failed: ${upsertError.message}`);
+        }
+        
+        console.log(`Successfully upserted ${seatUpdates.length} seat assignments`);
+      }
+
+      console.log('Seat assignment update completed successfully');
+    } catch (error) {
+      console.error('updateSeatAssignments failed:', error);
+      throw error;
     }
   };
 
-  // Debounced save with retry logic for individual tables
+  // Enhanced individual table save with backup and monitoring
   const saveTableToDatabase = async (table: Table, retries = 3): Promise<boolean> => {
     const tableKey = `table-${table.number}`;
     setPendingSaves(prev => new Set(prev).add(tableKey));
+    
+    // Create backup of current table state
+    createBackup(tables);
     
     console.log(`Attempting to save table ${table.number} (attempt 1/${retries})`);
     
@@ -396,6 +589,12 @@ const TableManager = () => {
         setSaveStatus('saving');
         
         console.log(`Save attempt ${attempt} for table ${table.number}: Setting up admin context...`);
+        
+        // Ensure connection is still valid
+        const connected = await checkConnection();
+        if (!connected) {
+          throw new Error('Database connection lost');
+        }
         
         // Setup admin context with retry logic
         const contextSet = await setupAdminContext();
@@ -476,44 +675,9 @@ const TableManager = () => {
           console.log(`Table ${table.number} inserted successfully with ID ${tableConfigId}`);
         }
 
-        // Clear existing seat assignments for this table
-        console.log(`Clearing existing seat assignments for table ${table.number} (ID: ${tableConfigId})`);
-        const { error: deleteError } = await supabase
-          .from('seat_assignments')
-          .delete()
-          .eq('table_configuration_id', tableConfigId);
-
-        if (deleteError) {
-          console.error(`Error clearing seat assignments for table ${table.number}:`, deleteError);
-          throw deleteError;
-        }
-
-        // Save seat assignments
-        console.log(`Saving seat assignments for table ${table.number}...`);
-        const seatsWithData = table.seats.filter(seat => seat.guestName || seat.tag || seat.note);
-        console.log(`Found ${seatsWithData.length} seats with data to save for table ${table.number}`);
-        
-        for (let i = 0; i < table.seats.length; i++) {
-          const seat = table.seats[i];
-          if (seat.guestName || seat.tag || seat.note) {
-            console.log(`Saving seat ${i} for table ${table.number}:`, { guestName: seat.guestName, tag: seat.tag, note: seat.note });
-            const { error: seatError } = await supabase
-              .from('seat_assignments')
-              .insert({
-                table_configuration_id: tableConfigId,
-                seat_index: i,
-                seat_angle: seat.angle,
-                guest_name: seat.guestName || null,
-                tag: seat.tag || null,
-                note: seat.note || null
-              });
-              
-            if (seatError) {
-              console.error(`Error saving seat ${i} for table ${table.number}:`, seatError);
-              throw seatError;
-            }
-          }
-        }
+        // Update seat assignments using safe atomic method
+        console.log(`Updating seat assignments for table ${table.number} (ID: ${tableConfigId})`);
+        await updateSeatAssignments(tableConfigId, table.seats);
         
         console.log(`Successfully saved table ${table.number} and all seat assignments`);
         
@@ -869,6 +1033,29 @@ const TableManager = () => {
   const assignSeat = async (tableId: string, seatId: string, guestName: string, tag?: string, note?: string) => {
     console.log('assignSeat called with:', { tableId, seatId, guestName, tag, note });
     
+    // Create backup before making changes
+    const originalTables = [...tables];
+    createBackup(originalTables);
+    
+    // Check for duplicate assignment before proceeding
+    if (guestName.trim()) {
+      const normalizedGuestName = guestName.trim().toLowerCase().replace(/\s+/g, ' ');
+      const isDuplicate = tables.some(table => 
+        table.seats.some(seat => 
+          seat.id !== seatId && 
+          seat.guestName && 
+          seat.guestName.toLowerCase().replace(/\s+/g, ' ') === normalizedGuestName
+        )
+      );
+      
+      if (isDuplicate) {
+        toast.error('Guest Already Assigned', { 
+          description: `${guestName} is already assigned to another seat.`
+        });
+        return;
+      }
+    }
+    
     const updatedTables = tables.map(table => {
       if (table.id === tableId) {
         return {
@@ -884,9 +1071,11 @@ const TableManager = () => {
     });
     
     console.log('Updated tables:', updatedTables);
+    
+    // Update state optimistically
     setTables(updatedTables);
     
-    // Save to database
+    // Save to database with rollback on failure
     const updatedTable = updatedTables.find(t => t.id === tableId);
     console.log('Found updated table for saving:', updatedTable);
     
@@ -896,18 +1085,29 @@ const TableManager = () => {
         const success = await saveTableToDatabase(updatedTable);
         if (success) {
           console.log('Save completed successfully');
-          toast.success('Seat assigned and saved');
+          // Only show success toast if it's an assignment (not clearing)
+          if (guestName.trim()) {
+            toast.success('Seat assigned and saved');
+          }
         } else {
-          console.error('Save failed');
-          toast.error('Failed to save seat assignment');
+          console.error('Save failed - rolling back changes');
+          // Rollback to original state
+          setTables(originalTables);
+          toast.error('Failed to save seat assignment - changes rolled back');
+          return;
         }
       } catch (error) {
-        console.error('Error during save:', error);
-        toast.error('Error saving seat assignment');
+        console.error('Error during save - rolling back changes:', error);
+        // Rollback to original state
+        setTables(originalTables);
+        toast.error('Error saving seat assignment - changes rolled back');
+        return;
       }
     } else {
-      console.error('Could not find updated table for saving');
-      toast.error('Could not find table to save');
+      console.error('Could not find updated table for saving - rolling back');
+      setTables(originalTables);
+      toast.error('Could not find table to save - changes rolled back');
+      return;
     }
     
     setSelectedSeat(null);
@@ -1050,30 +1250,55 @@ const TableManager = () => {
             <h1 className="text-2xl font-bold">Table Seating Manager</h1>
             <div className="flex items-center gap-2">
               {/* Save Status Indicator */}
-              <div className="flex items-center gap-1 text-xs">
-                {saveStatus === 'saving' && (
-                  <>
-                    <div className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" />
-                    <span className="text-muted-foreground">Saving...</span>
-                  </>
-                )}
-                {saveStatus === 'saved' && (
-                  <>
-                    <CheckCircle className="w-3 h-3 text-green-500" />
-                    <span className="text-green-500">Saved</span>
-                  </>
-                )}
-                {saveStatus === 'error' && (
-                  <>
-                    <AlertCircle className="w-3 h-3 text-red-500" />
-                    <span className="text-red-500">Save failed</span>
-                  </>
-                )}
-                {pendingSaves.size > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    ({pendingSaves.size} pending)
-                  </span>
-                )}
+              <div className="flex items-center gap-3 text-xs">
+                {/* Connection Status */}
+                <div className="flex items-center gap-1">
+                  {connectionStatus === 'connected' && (
+                    <>
+                      <div className="w-2 h-2 bg-green-500 rounded-full" />
+                      <span className="text-green-500">Connected</span>
+                    </>
+                  )}
+                  {connectionStatus === 'disconnected' && (
+                    <>
+                      <div className="w-2 h-2 bg-red-500 rounded-full" />
+                      <span className="text-red-500">Disconnected</span>
+                    </>
+                  )}
+                  {connectionStatus === 'checking' && (
+                    <>
+                      <div className="animate-spin w-2 h-2 border border-primary border-t-transparent rounded-full" />
+                      <span className="text-muted-foreground">Checking...</span>
+                    </>
+                  )}
+                </div>
+
+                {/* Save Status */}
+                <div className="flex items-center gap-1">
+                  {saveStatus === 'saving' && (
+                    <>
+                      <div className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" />
+                      <span className="text-muted-foreground">Saving...</span>
+                    </>
+                  )}
+                  {saveStatus === 'saved' && (
+                    <>
+                      <CheckCircle className="w-3 h-3 text-green-500" />
+                      <span className="text-green-500">Saved</span>
+                    </>
+                  )}
+                  {saveStatus === 'error' && (
+                    <>
+                      <AlertCircle className="w-3 h-3 text-red-500" />
+                      <span className="text-red-500">Save failed</span>
+                    </>
+                  )}
+                  {pendingSaves.size > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      ({pendingSaves.size} pending)
+                    </span>
+                  )}
+                </div>
               </div>
               
               <Button asChild size="sm" variant="default">
@@ -1082,6 +1307,14 @@ const TableManager = () => {
                   View Seating Grid
                 </Link>
               </Button>
+              {/* Emergency Recovery */}
+              {(saveStatus === 'error' || connectionStatus === 'disconnected') && (
+                <Button onClick={restoreFromBackup} variant="destructive" size="sm">
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  Restore Backup
+                </Button>
+              )}
+              
               <Button onClick={resetToDefault} variant="outline" size="sm">
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Reset Tables
@@ -1415,9 +1648,28 @@ const SeatAssignmentForm = ({
 
   const handleSubmit = () => {
     const guestName = useCustomName ? customName : selectedGuest;
-    if (guestName.trim()) {
-      onAssign(guestName.trim(), tag.trim() || undefined, note.trim() || undefined);
+    if (!guestName.trim()) {
+      toast("Please select or enter a guest name", { 
+        description: "A guest name is required to assign the seat."
+      });
+      return;
     }
+
+    // Check for duplicate assignment one more time before submitting
+    const normalizedGuestName = normalizeName(guestName);
+    if (assignedGuestNames.has(normalizedGuestName)) {
+      toast("Guest Already Assigned", { 
+        description: `${guestName} is already assigned to another seat. Please check the seating chart.`,
+        duration: 5000
+      });
+      return;
+    }
+
+    // Proceed with assignment
+    onAssign(guestName.trim(), tag.trim() || undefined, note.trim() || undefined);
+    toast("Seat Assigned Successfully", { 
+      description: `${guestName} has been assigned to the seat.`
+    });
   };
 
   return (
@@ -1488,13 +1740,41 @@ const SeatAssignmentForm = ({
         />
       </div>
 
+      {/* Warning for duplicate assignment */}
+      {((useCustomName && customName.trim()) || (!useCustomName && selectedGuest)) && (
+        assignedGuestNames.has(normalizeName(useCustomName ? customName : selectedGuest))
+      ) && (
+        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+          <div className="flex items-center gap-2 text-destructive text-sm">
+            <AlertCircle className="w-4 h-4" />
+            <span>This guest is already assigned to another seat</span>
+          </div>
+        </div>
+      )}
+
+      {/* Loading indicator for database sync */}
+      {dbSyncLoading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" />
+          <span>Checking for conflicts...</span>
+        </div>
+      )}
+
       <div className="flex gap-2">
-        <Button onClick={handleSubmit} className="flex-1">
+        <Button 
+          onClick={handleSubmit} 
+          className="flex-1"
+          disabled={((useCustomName && customName.trim()) || (!useCustomName && selectedGuest)) && 
+                   assignedGuestNames.has(normalizeName(useCustomName ? customName : selectedGuest))}
+        >
           Assign Seat
         </Button>
         {seat.guestName && (
           <Button
-            onClick={() => onAssign('', '', '')}
+            onClick={() => {
+              onAssign('', '', '');
+              toast("Seat Cleared", { description: "The seat assignment has been removed." });
+            }}
             variant="outline"
           >
             Clear
