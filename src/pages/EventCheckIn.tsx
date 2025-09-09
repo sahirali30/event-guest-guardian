@@ -55,6 +55,8 @@ const EventCheckIn = () => {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [zoom, setZoom] = useState(1);
   const [processingGuest, setProcessingGuest] = useState<string | null>(null);
+  const [refreshingCheckIns, setRefreshingCheckIns] = useState(false);
+  const [searchRefreshError, setSearchRefreshError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -233,12 +235,32 @@ const EventCheckIn = () => {
   }, [loadTables, loadCheckins, toast]);
 
   const refreshCheckinsOnly = useCallback(async () => {
+    setRefreshingCheckIns(true);
+    setSearchRefreshError(null);
     try {
-      await loadCheckins();
-    } catch (error) {
+      console.log('Refreshing check-ins for search...');
+      await setupAdminContext();
+      
+      const { data, error } = await supabase
+        .from('guest_checkins')
+        .select('*')
+        .order('checked_in_at', { ascending: false });
+
+      if (error) {
+        console.error('Error refreshing check-ins:', error);
+        throw error;
+      }
+      
+      setCheckins(data || []);
+      setLastUpdated(new Date());
+      console.log('Check-ins refreshed successfully, found:', data?.length || 0, 'records');
+    } catch (error: any) {
       console.error('Error refreshing check-ins:', error);
+      setSearchRefreshError('Failed to refresh check-in status');
+    } finally {
+      setRefreshingCheckIns(false);
     }
-  }, [loadCheckins]);
+  }, [setupAdminContext]);
 
   const isGuestCheckedIn = (guestName: string) => {
     const normalizedName = guestName.toLowerCase().trim();
@@ -622,14 +644,44 @@ const EventCheckIn = () => {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col gap-4">
                 {/* Search Input */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <Input
-                    placeholder="Search guest name..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                    <Input
+                      placeholder="Search guest name..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                    {refreshingCheckIns && (
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                        <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Status indicators */}
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      {refreshingCheckIns && (
+                        <span className="text-muted-foreground">Updating check-in status...</span>
+                      )}
+                      {searchRefreshError && (
+                        <span className="text-destructive">{searchRefreshError}</span>
+                      )}
+                    </div>
+                    {searchTerm.trim() && !refreshingCheckIns && !searchRefreshError && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={refreshCheckinsOnly}
+                        className="h-6 px-2 text-xs"
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                        Refresh Status
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <Separator />
