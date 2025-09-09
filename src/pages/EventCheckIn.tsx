@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Search, Check, X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Search, Check, X, ZoomIn, ZoomOut, RotateCcw, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import hallFloorPlan from '@/assets/hall-floor-plan.png';
 import modiLogo from '@/assets/modi-logo.svg';
@@ -50,10 +50,13 @@ const EventCheckIn = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredGuests, setFilteredGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [zoom, setZoom] = useState(1);
   const [processingGuest, setProcessingGuest] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const setupAdminContext = useCallback(async () => {
     try {
@@ -194,6 +197,7 @@ const EventCheckIn = () => {
 
       if (error) throw error;
       setCheckins(data || []);
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading check-ins:', error);
       toast({
@@ -203,6 +207,38 @@ const EventCheckIn = () => {
       });
     }
   }, [setupAdminContext, toast]);
+
+  const refreshAllData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadTables(),
+        loadCheckins()
+      ]);
+      // loadGuests will be called automatically when tables update
+      toast({
+        title: "Data Refreshed",
+        description: "All data has been updated successfully.",
+      });
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      toast({
+        title: "Refresh Failed",
+        description: "Failed to refresh data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadTables, loadCheckins, toast]);
+
+  const refreshCheckinsOnly = useCallback(async () => {
+    try {
+      await loadCheckins();
+    } catch (error) {
+      console.error('Error refreshing check-ins:', error);
+    }
+  }, [loadCheckins]);
 
   const isGuestCheckedIn = (guestName: string) => {
     const normalizedName = guestName.toLowerCase().trim();
@@ -377,6 +413,11 @@ const EventCheckIn = () => {
     setZoom(1);
   };
 
+  const handleRefresh = () => {
+    handleResetZoom();
+    refreshAllData();
+  };
+
   useEffect(() => {
     const initializeData = async () => {
       setLoading(true);
@@ -404,6 +445,25 @@ const EventCheckIn = () => {
       setFilteredGuests([]);
     }
   }, [searchTerm, guests]);
+
+  // Debounced effect for refreshing check-ins on search
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchTerm.trim()) {
+      searchTimeoutRef.current = setTimeout(() => {
+        refreshCheckinsOnly();
+      }, 500); // 500ms debounce
+    }
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm, refreshCheckinsOnly]);
 
   if (loading) {
     return (
@@ -438,34 +498,46 @@ const EventCheckIn = () => {
               <h1 className="text-2xl font-bold">Event Day Check-In</h1>
             </div>
             
-            {/* Zoom Controls */}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleZoomOut}
-                disabled={zoom <= 0.5}
-              >
-                <ZoomOut className="w-4 h-4" />
-              </Button>
-              <span className="text-sm text-muted-foreground self-center min-w-[60px] text-center">
-                {Math.round(zoom * 100)}%
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleZoomIn}
-                disabled={zoom >= 3}
-              >
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleResetZoom}
-              >
-                <RotateCcw className="w-4 h-4" />
-              </Button>
+            {/* Zoom and Refresh Controls */}
+            <div className="flex items-center gap-4">
+              {lastUpdated && (
+                <div className="text-xs text-muted-foreground">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleZoomOut}
+                  disabled={zoom <= 0.5}
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground self-center min-w-[60px] text-center">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleZoomIn}
+                  disabled={zoom >= 3}
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                >
+                  {refreshing ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
