@@ -49,77 +49,38 @@ const TableManager = () => {
   const [draggedTable, setDraggedTable] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | 'idle'>('idle');
-  const [pendingSaves, setPendingSaves] = useState<Set<string>>(new Set());
-  const [lastBackup, setLastBackup] = useState<Table[] | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const canvasRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Enhanced admin context setup with session persistence and validation
-  const setupAdminContext = async (retries = 3): Promise<boolean> => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        console.log(`Setting up admin context (attempt ${attempt}/${retries})`);
-        
-        // Set the context with session persistence
-        const { error: setError } = await supabase.rpc('set_config', {
-          setting_name: 'app.current_user_email',
-          setting_value: 'admincode@modivc.com'
-        });
+  // Simple admin context setup
+  const setupAdminContext = async (): Promise<boolean> => {
+    try {
+      const { error } = await supabase.rpc('set_config', {
+        setting_name: 'app.current_user_email',
+        setting_value: 'admincode@modivc.com'
+      });
 
-        if (setError) {
-          console.error('Failed to set config:', setError);
-          throw setError;
-        }
-        
-        // Verify the context was set correctly by testing both read and write access
-        const { error: readError } = await supabase
-          .from('table_configurations')
-          .select('id')
-          .limit(1);
-          
-        if (readError) {
-          console.error('Read test failed:', readError);
-          throw readError;
-        }
-
-        // Test write access to seat_assignments (the critical table)
-        const { error: writeTestError } = await supabase
-          .from('seat_assignments')
-          .select('id')
-          .limit(1);
-          
-        if (writeTestError) {
-          console.error('Write test failed:', writeTestError);
-          throw writeTestError;
-        }
-        
-        console.log(`Admin context established successfully on attempt ${attempt}`);
-        return true;
-        
-      } catch (error) {
-        console.error(`Admin context setup attempt ${attempt} failed:`, error);
-        if (attempt < retries) {
-          console.log(`Retrying in ${100 * attempt}ms...`);
-          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
-        }
+      if (error) {
+        console.error('Failed to set admin context:', error);
+        return false;
       }
+      
+      return true;
+    } catch (error) {
+      console.error('Admin context setup failed:', error);
+      return false;
     }
-    console.error(`Failed to establish admin context after ${retries} attempts`);
-    return false;
   };
 
   // Load tables from database or initialize default layout
   useEffect(() => {
     const loadTables = async () => {
       try {
-        // Setup admin context with retry logic
         const contextSet = await setupAdminContext();
         if (!contextSet) {
           throw new Error('Failed to establish admin context');
         }
 
-        // First, try to load from database
         const { data: tableConfigs, error } = await supabase
           .from('table_configurations')
           .select(`
@@ -129,9 +90,7 @@ const TableManager = () => {
           .order('table_number');
 
         if (!error && tableConfigs && tableConfigs.length > 0) {
-          // Convert database data to table format
           const loadedTables: Table[] = tableConfigs.map(config => {
-            // Create all seats based on seat_count
             const seats: Seat[] = [];
             for (let i = 0; i < config.seat_count; i++) {
               const assignment = config.seat_assignments.find((a: any) => a.seat_index === i);
@@ -148,1049 +107,370 @@ const TableManager = () => {
               id: `table-${config.table_number}`,
               number: config.table_number,
               label: config.label,
-              x: Number(config.x),
-              y: Number(config.y),
-              seats
+              x: config.x,
+              y: config.y,
+              seats,
             };
           });
+          
           setTables(loadedTables);
+          toast("Layout Loaded", { description: "Table layout loaded from database." });
         } else {
-          // Initialize default layout if no data in database
-          initializeDefaultTables();
+          // Initialize with default layout
+          const defaultTables = createDefaultLayout();
+          setTables(defaultTables);
         }
       } catch (error) {
         console.error('Error loading tables:', error);
-        // Fallback to localStorage
-        const savedTables = localStorage.getItem('tableSeatLayout');
-        if (savedTables) {
-          setTables(JSON.parse(savedTables));
-        } else {
-          initializeDefaultTables();
-        }
+        const defaultTables = createDefaultLayout();
+        setTables(defaultTables);
+        toast("Using Default Layout", { description: "Could not load saved layout. Using default." });
       }
-    };
-
-    const initializeDefaultTables = async () => {
-      const initialTables: Table[] = [];
-      const canvasWidth = 2000;  // Expanded from 1200 to 2000
-      const canvasHeight = 1400; // Expanded from 800 to 1400
-      const margin = 150;        // Added margin around edges
-      
-      // Ensure we always have complete set of tables 1-24
-      // Row 1: Tables 1-10 with improved spacing
-      for (let i = 1; i <= 10; i++) {
-        const x = margin + (i - 1) * ((canvasWidth - 2 * margin) / 9);
-        const y = 250;  // Moved down from 150 to give top margin
-        initialTables.push(createTable(i, x, y));
-      }
-      
-      // Row 2: Tables 11-20 with improved spacing 
-      for (let i = 11; i <= 20; i++) {
-        const x = margin + (i - 11) * ((canvasWidth - 2 * margin) / 9);
-        const y = 650;  // Increased spacing from 350 to 650 (400px gap between rows)
-        initialTables.push(createTable(i, x, y));
-      }
-      
-      // Row 3: Tables 21-24 with improved spacing
-      for (let i = 21; i <= 24; i++) {
-        const x = margin + (canvasWidth - 2 * margin) / 4 * (i - 21) + (canvasWidth - 2 * margin) / 8;
-        const y = 1050; // Increased spacing from 550 to 1050 (400px gap)
-        initialTables.push(createTable(i, x, y));
-      }
-      
-      setTables(initialTables);
-      // Save complete layout to database
-      await saveTablesToDatabase(initialTables);
     };
 
     loadTables();
   }, []);
 
-  // Backup and recovery functions
-  const createBackup = useCallback((tablesToBackup: Table[]) => {
-    try {
-      const backup = JSON.parse(JSON.stringify(tablesToBackup));
-      setLastBackup(backup);
-      localStorage.setItem('tableBackup', JSON.stringify({
-        timestamp: Date.now(),
-        tables: backup
-      }));
-      console.log('Backup created successfully');
-    } catch (error) {
-      console.error('Failed to create backup:', error);
-    }
-  }, []);
-
-  const restoreFromBackup = useCallback(async () => {
-    try {
-      if (lastBackup) {
-        setTables(lastBackup);
-        await saveTablesToDatabase(lastBackup);
-        showToast({
-          title: "Restored from Backup",
-          description: "Table layout has been restored from the last backup.",
-        });
-        return true;
-      }
-      
-      // Try localStorage backup
-      const localBackup = localStorage.getItem('tableBackup');
-      if (localBackup) {
-        const backup = JSON.parse(localBackup);
-        setTables(backup.tables);
-        await saveTablesToDatabase(backup.tables);
-        showToast({
-          title: "Restored from Local Backup",
-          description: `Table layout restored from backup created at ${new Date(backup.timestamp).toLocaleString()}.`,
-        });
-        return true;
-      }
-      
-      showToast({
-        title: "No Backup Available",
-        description: "No backup found to restore from.",
-        variant: "destructive"
-      });
-      return false;
-    } catch (error) {
-      console.error('Failed to restore from backup:', error);
-      showToast({
-        title: "Restore Failed",
-        description: "Failed to restore from backup.",
-        variant: "destructive"
-      });
-      return false;
-    }
-  }, [lastBackup, showToast]);
-
-  // Connection monitoring
-  const checkConnection = useCallback(async () => {
-    try {
-      setConnectionStatus('checking');
-      const contextSet = await setupAdminContext(1);
-      setConnectionStatus(contextSet ? 'connected' : 'disconnected');
-      return contextSet;
-    } catch (error) {
-      console.error('Connection check failed:', error);
-      setConnectionStatus('disconnected');
-      return false;
-    }
-  }, []);
-
-  // Periodic connection check
-  useEffect(() => {
-    const interval = setInterval(checkConnection, 30000); // Check every 30 seconds
-    return () => clearInterval(interval);
-  }, [checkConnection]);
-
-  // Load both invited guests and their registered guests from Supabase
+  // Load guests
   useEffect(() => {
     const loadGuests = async () => {
       try {
-        // Setup admin context for guest data access
         const contextSet = await setupAdminContext();
-        if (!contextSet) {
-          console.error('Failed to establish admin context for guest loading');
-          return;
+        if (!contextSet) return;
+
+        const [invitedGuestsResponse, registrationsResponse] = await Promise.all([
+          supabase.from('invited_guests').select('id, name, email'),
+          supabase.from('registrations').select(`
+            id,
+            invited_guest_id,
+            guest_registrations(guest_name, guest_email)
+          `)
+        ]);
+
+        const allGuests: Guest[] = [];
+
+        if (invitedGuestsResponse.data) {
+          allGuests.push(...invitedGuestsResponse.data.map(guest => ({
+            id: guest.id,
+            name: guest.name,
+            email: guest.email,
+            type: 'invited' as const
+          })));
         }
 
-        const { data, error } = await supabase
-        .from('registrations')
-        .select(`
-          invited_guest_id,
-          invited_guests!inner(name, email),
-          guest_registrations(guest_name, guest_email)
-        `)
-        .eq('will_attend', true);
-      
-      if (!error && data) {
-        const combinedGuests: Guest[] = [];
-        
-        // Add invited guests
-        data.forEach((registration: any) => {
-          const invitedGuest = registration.invited_guests;
-          if (invitedGuest && !combinedGuests.some(g => g.email === invitedGuest.email)) {
-            combinedGuests.push({
-              id: registration.invited_guest_id,
-              name: invitedGuest.name,
-              email: invitedGuest.email,
-              type: 'invited'
-            });
-          }
-          
-          // Add their registered guests
-          registration.guest_registrations?.forEach((guest: any) => {
-            if (guest.guest_name && !combinedGuests.some(g => g.name === guest.guest_name && g.email === guest.guest_email)) {
-              combinedGuests.push({
-                id: `guest-${guest.guest_email}`,
-                name: guest.guest_name,
-                email: guest.guest_email,
-                type: 'guest'
+        if (registrationsResponse.data) {
+          registrationsResponse.data.forEach(registration => {
+            if (registration.guest_registrations) {
+              registration.guest_registrations.forEach((guest: any) => {
+                allGuests.push({
+                  id: `guest-${Date.now()}-${Math.random()}`,
+                  name: guest.guest_name,
+                  email: guest.guest_email || '',
+                  type: 'guest' as const
+                });
               });
             }
           });
-        });
-        
-        // Sort guests by name
-        combinedGuests.sort((a, b) => a.name.localeCompare(b.name));
-        setGuests(combinedGuests);
-      } else {
+        }
+
+        setGuests(allGuests);
+      } catch (error) {
         console.error('Error loading guests:', error);
       }
-    } catch (error) {
-      console.error('Error loading guests:', error);
-    }
     };
+
     loadGuests();
   }, []);
 
-  // Keep localStorage as backup but database is primary
-  useEffect(() => {
-    if (tables.length > 0) {
-      localStorage.setItem('tableSeatLayout', JSON.stringify(tables));
-    }
-  }, [tables]);
-
-  // Enhanced database save with backup and recovery
-  const saveTablesToDatabase = async (tablesToSave: Table[], retries = 3): Promise<boolean> => {
-    // Create backup before any destructive operations
-    createBackup(tables);
-    
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        setSaveStatus('saving');
-        console.log(`Starting bulk save attempt ${attempt}/${retries}`);
-        
-        // Setup admin context with retry logic
-        const contextSet = await setupAdminContext();
-        if (!contextSet) {
-          throw new Error('Failed to establish admin context');
-        }
-
-        // Get existing table configurations to compare
-        const { data: existingTables, error: fetchError } = await supabase
-          .from('table_configurations')
-          .select('*')
-          .order('table_number', { ascending: true });
-
-        if (fetchError) {
-          console.error('Error fetching existing tables:', fetchError);
-          throw fetchError;
-        }
-
-        const existingTableMap = new Map(existingTables?.map(t => [t.table_number, t]) || []);
-        const tablesToSaveMap = new Map(tablesToSave.map(t => [t.number, t]));
-
-        // Delete tables that no longer exist in the new layout
-        const tablesToDelete = existingTables?.filter(existing => 
-          !tablesToSaveMap.has(existing.table_number)
-        ) || [];
-
-        for (const tableToDelete of tablesToDelete) {
-          await supabase
-            .from('table_configurations')
-            .delete()
-            .eq('id', tableToDelete.id);
-        }
-
-        // Process each table in the new layout
-        for (const table of tablesToSave) {
-          const existingTable = existingTableMap.get(table.number);
-          let tableConfigId: string;
-
-          if (existingTable) {
-            // Update existing table configuration
-            const { data: updatedTable, error: updateError } = await supabase
-              .from('table_configurations')
-              .update({
-                label: table.label,
-                x: table.x,
-                y: table.y,
-                seat_count: table.seats.length
-              })
-              .eq('id', existingTable.id)
-              .select()
-              .single();
-
-            if (updateError) {
-              console.error('Error updating table:', updateError);
-              continue;
-            }
-            tableConfigId = updatedTable.id;
-          } else {
-            // Insert new table configuration
-            const { data: newTable, error: insertError } = await supabase
-              .from('table_configurations')
-              .insert({
-                table_number: table.number,
-                label: table.label,
-                x: table.x,
-                y: table.y,
-                seat_count: table.seats.length
-              })
-              .select()
-              .single();
-
-            if (insertError) {
-              console.error('Error inserting table:', insertError);
-              continue;
-            }
-            tableConfigId = newTable.id;
-          }
-
-          // Update seat assignments for this table
-          await updateSeatAssignments(tableConfigId, table.seats);
-        }
-      setSaveStatus('saved');
-      setTimeout(() => setSaveStatus('idle'), 2000);
-      return true;
-    } catch (error) {
-      console.error(`Save attempt ${attempt} failed:`, error);
-      if (attempt < retries) {
-        await new Promise(resolve => setTimeout(resolve, 200 * attempt));
-      } else {
-        setSaveStatus('error');
-        setTimeout(() => setSaveStatus('idle'), 3000);
-        showToast({
-          title: "Save Failed",
-          description: `Failed to save tables after ${retries} attempts: ${error.message}`,
-          variant: "destructive"
-        });
-        return false;
-      }
-    }
-    }
-    return false;
-  };
-
-  // SAFE seat assignment update with atomic transaction and backup
-  const updateSeatAssignments = async (tableConfigId: string, seats: Seat[]) => {
-    try {
-      // First, create backup of existing seat assignments
-      const { data: existingSeats, error: backupError } = await supabase
-        .from('seat_assignments')
-        .select('*')
-        .eq('table_configuration_id', tableConfigId);
-
-      if (backupError) {
-        console.error('Failed to backup existing seats:', backupError);
-        throw new Error(`Backup failed: ${backupError.message}`);
-      }
-
-      console.log(`Backing up ${existingSeats?.length || 0} existing seat assignments`);
-
-      // Verify admin context is still valid before proceeding
-      const { error: testError } = await supabase
-        .from('seat_assignments')
-        .select('id')
-        .limit(1);
-
-      if (testError) {
-        console.error('Admin context invalid during seat update:', testError);
-        throw new Error('Admin authentication lost during operation');
-      }
-
-      // Use UPSERT pattern instead of delete-then-insert to avoid data loss
-      const seatUpdates: any[] = [];
+  const createDefaultLayout = (): Table[] => {
+    return Array.from({ length: 20 }, (_, i) => {
+      const tableNumber = i + 1;
+      const angle = (i * 18) * (Math.PI / 180);
+      const radius = 200;
+      const centerX = 400;
+      const centerY = 300;
       
-      // Prepare all seat assignments for upsert
-      for (let i = 0; i < seats.length; i++) {
-        const seat = seats[i];
-        if (seat.guestName || seat.tag || seat.note) {
-          seatUpdates.push({
-            table_configuration_id: tableConfigId,
-            seat_index: i,
-            seat_angle: seat.angle,
-            guest_name: seat.guestName || null,
-            tag: seat.tag || null,
-            note: seat.note || null
-          });
-        }
-      }
-
-      // First, delete only seats that won't be replaced
-      const newSeatIndices = new Set(seatUpdates.map(s => s.seat_index));
-      const seatsToDelete = existingSeats?.filter(s => !newSeatIndices.has(s.seat_index)) || [];
-      
-      if (seatsToDelete.length > 0) {
-        const deleteIds = seatsToDelete.map(s => s.id);
-        const { error: deleteError } = await supabase
-          .from('seat_assignments')
-          .delete()
-          .in('id', deleteIds);
-
-        if (deleteError) {
-          console.error('Failed to delete obsolete seats:', deleteError);
-          throw new Error(`Delete failed: ${deleteError.message}`);
-        }
-        console.log(`Deleted ${seatsToDelete.length} obsolete seat assignments`);
-      }
-
-      // Now upsert the new/updated seat assignments
-      if (seatUpdates.length > 0) {
-        const { error: upsertError } = await supabase
-          .from('seat_assignments')
-          .upsert(seatUpdates, {
-            onConflict: 'table_configuration_id,seat_index'
-          });
-
-        if (upsertError) {
-          console.error('Failed to upsert seat assignments:', upsertError);
-          // Attempt to restore from backup
-          if (existingSeats && existingSeats.length > 0) {
-            console.log('Attempting to restore from backup...');
-            try {
-              await supabase
-                .from('seat_assignments')
-                .delete()
-                .eq('table_configuration_id', tableConfigId);
-              
-              await supabase
-                .from('seat_assignments')
-                .insert(existingSeats.map(s => ({
-                  table_configuration_id: s.table_configuration_id,
-                  seat_index: s.seat_index,
-                  seat_angle: s.seat_angle,
-                  guest_name: s.guest_name,
-                  tag: s.tag,
-                  note: s.note
-                })));
-              
-              console.log('Successfully restored from backup');
-            } catch (restoreError) {
-              console.error('Failed to restore from backup:', restoreError);
-            }
-          }
-          throw new Error(`Upsert failed: ${upsertError.message}`);
-        }
-        
-        console.log(`Successfully upserted ${seatUpdates.length} seat assignments`);
-      }
-
-      console.log('Seat assignment update completed successfully');
-    } catch (error) {
-      console.error('updateSeatAssignments failed:', error);
-      throw error;
-    }
+      return createTable(
+        tableNumber,
+        `Table ${tableNumber}`,
+        centerX + Math.cos(angle) * radius,
+        centerY + Math.sin(angle) * radius,
+        10
+      );
+    });
   };
 
-  // Enhanced individual table save with backup and monitoring
-  const saveTableToDatabase = async (table: Table, retries = 3): Promise<boolean> => {
-    const tableKey = `table-${table.number}`;
-    setPendingSaves(prev => new Set(prev).add(tableKey));
-    
-    // Create backup of current table state
-    createBackup(tables);
-    
-    console.log(`Attempting to save table ${table.number} (attempt 1/${retries})`);
-    
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        setSaveStatus('saving');
-        
-        console.log(`Save attempt ${attempt} for table ${table.number}: Setting up admin context...`);
-        
-        // Ensure connection is still valid
-        const connected = await checkConnection();
-        if (!connected) {
-          throw new Error('Database connection lost');
-        }
-        
-        // Setup admin context with retry logic
-        const contextSet = await setupAdminContext();
-        if (!contextSet) {
-          throw new Error('Failed to establish admin context after retries');
-        }
+  const createTable = (number: number, label: string, x: number, y: number, seatCount: number = 10): Table => {
+    const seats: Seat[] = Array.from({ length: seatCount }, (_, i) => ({
+      id: `seat-${number}-${i}`,
+      angle: (i * 360) / seatCount,
+    }));
 
-        console.log(`Admin context established for table ${table.number}`);
-
-        // Check if table exists (get most recent if multiple exist)
-        console.log(`Checking if table ${table.number} exists in database...`);
-        const { data: existingTable, error: selectError } = await supabase
-          .from('table_configurations')
-          .select('id')
-          .eq('table_number', table.number)
-          .order('created_at', { ascending: false })
-          .maybeSingle();
-
-        if (selectError) {
-          console.error(`Error checking existing table ${table.number}:`, selectError);
-          throw selectError;
-        }
-
-        console.log(`Table ${table.number} existing check result:`, existingTable);
-
-        let tableConfigId: string;
-
-        if (existingTable) {
-          console.log(`Updating existing table ${table.number} with ID ${existingTable.id}`);
-          // Update existing table
-          const { data: updatedTable, error: updateError } = await supabase
-            .from('table_configurations')
-            .update({
-              label: table.label,
-              x: table.x,
-              y: table.y,
-              seat_count: table.seats.length
-            })
-            .eq('table_number', table.number)
-            .select()
-            .maybeSingle();
-
-          if (updateError) {
-            console.error(`Error updating table ${table.number}:`, updateError);
-            throw updateError;
-          }
-          
-          // Handle case where update returns 0 rows (PGRST116 error)
-          if (!updatedTable) {
-            console.log(`Update returned 0 rows for table ${table.number}, attempting insert instead`);
-            // Fall through to insert logic
-          } else {
-            tableConfigId = updatedTable.id;
-            console.log(`Table ${table.number} updated successfully with ID ${tableConfigId}`);
-          }
-        }
-        
-        if (!existingTable || !tableConfigId) {
-          console.log(`Inserting new table ${table.number}`);
-          // Insert new table
-          const { data: newTable, error: insertError } = await supabase
-            .from('table_configurations')
-            .insert({
-              table_number: table.number,
-              label: table.label,
-              x: table.x,
-              y: table.y,
-              seat_count: table.seats.length
-            })
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error(`Error inserting table ${table.number}:`, insertError);
-            throw insertError;
-          }
-          tableConfigId = newTable.id;
-          console.log(`Table ${table.number} inserted successfully with ID ${tableConfigId}`);
-        }
-
-        // Update seat assignments using safe atomic method
-        console.log(`Updating seat assignments for table ${table.number} (ID: ${tableConfigId})`);
-        await updateSeatAssignments(tableConfigId, table.seats);
-        
-        console.log(`Successfully saved table ${table.number} and all seat assignments`);
-        
-        setPendingSaves(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tableKey);
-          return newSet;
-        });
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
-        return true;
-      } catch (error: any) {
-        console.error(`Save table ${table.number} attempt ${attempt} failed:`, error);
-        console.error('Error details:', error.message, error.code, error.details);
-        
-        if (attempt < retries) {
-          console.log(`Retrying save for table ${table.number} in ${200 * attempt}ms...`);
-          await new Promise(resolve => setTimeout(resolve, 200 * attempt));
-        } else {
-          console.error(`All ${retries} save attempts failed for table ${table.number}`);
-          setPendingSaves(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(tableKey);
-            return newSet;
-          });
-          setSaveStatus('error');
-          setTimeout(() => setSaveStatus('idle'), 3000);
-          showToast({
-            title: "Save Error", 
-            description: `Failed to save table ${table.number} after ${retries} attempts: ${error.message || 'Unknown error'}`,
-            variant: "destructive"
-          });
-          return false;
-        }
-      }
-    }
-    return false;
-  };
-
-  const createTable = (number: number, x: number, y: number): Table => {
-    const seats: Seat[] = [];
-    for (let i = 0; i < 10; i++) {
-      seats.push({
-        id: `seat-${number}-${i}`,
-        angle: (i * 360) / 10,
-      });
-    }
-    
     return {
       id: `table-${number}`,
       number,
-      label: `Table ${number}`,
+      label,
       x,
       y,
       seats,
     };
   };
 
-  const [dragStartPosition, setDragStartPosition] = useState<{ x: number; y: number } | null>(null);
-  const [pendingDragTable, setPendingDragTable] = useState<string | null>(null);
+  // Simple seat assignment update
+  const updateSeatAssignments = async (table: Table): Promise<void> => {
+    try {
+      const contextSet = await setupAdminContext();
+      if (!contextSet) throw new Error('Failed to establish admin context');
 
-  // Helper function to extract coordinates from mouse or touch events
-  const getEventCoordinates = (e: MouseEvent | TouchEvent) => {
-    if ('touches' in e) {
-      return {
-        clientX: e.touches[0]?.clientX || 0,
-        clientY: e.touches[0]?.clientY || 0
+      // Get the table configuration ID
+      const { data: tableConfig } = await supabase
+        .from('table_configurations')
+        .select('id')
+        .eq('table_number', table.number)
+        .single();
+
+      if (!tableConfig) throw new Error('Table configuration not found');
+
+      // Delete existing seat assignments for this table
+      await supabase
+        .from('seat_assignments')
+        .delete()
+        .eq('table_configuration_id', tableConfig.id);
+
+      // Insert new seat assignments (only for seats with assignments)
+      const seatAssignments = table.seats
+        .map((seat, index) => ({
+          table_configuration_id: tableConfig.id,
+          seat_index: index,
+          seat_angle: seat.angle,
+          guest_name: seat.guestName || null,
+          tag: seat.tag || null,
+          note: seat.note || null
+        }))
+        .filter(assignment => assignment.guest_name || assignment.tag || assignment.note);
+
+      if (seatAssignments.length > 0) {
+        const { error: insertError } = await supabase
+          .from('seat_assignments')
+          .insert(seatAssignments);
+
+        if (insertError) throw insertError;
+      }
+    } catch (error) {
+      console.error('Error updating seat assignments:', error);
+      throw error;
+    }
+  };
+
+  const saveTablesToDatabase = async (): Promise<void> => {
+    try {
+      setSaveStatus('saving');
+      const contextSet = await setupAdminContext();
+      if (!contextSet) throw new Error('Failed to establish admin context');
+
+      for (const table of tables) {
+        await saveTableToDatabase(table);
+      }
+
+      setSaveStatus('saved');
+      toast("Layout Saved", { description: "All tables and seating assignments saved successfully." });
+      
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (error) {
+      console.error('Error saving tables:', error);
+      setSaveStatus('error');
+      toast("Save Failed", { description: "Failed to save layout. Please try again." });
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
+
+  const saveTableToDatabase = async (table: Table): Promise<void> => {
+    try {
+      const contextSet = await setupAdminContext();
+      if (!contextSet) throw new Error('Failed to establish admin context');
+
+      const tableData = {
+        table_number: table.number,
+        label: table.label,
+        x: table.x,
+        y: table.y,
+        seat_count: table.seats.length
       };
-    }
-    return { clientX: e.clientX, clientY: e.clientY };
-  };
 
-  const handleMouseDown = (e: React.MouseEvent, tableId: string) => {
-    const table = tables.find(t => t.id === tableId);
-    if (!table) return;
+      const { error } = await supabase
+        .from('table_configurations')
+        .upsert(tableData, { onConflict: 'table_number' });
 
-    setSelectedTable(tableId);
-    setPendingDragTable(tableId);
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (rect) {
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      setDragStartPosition({ x: mouseX, y: mouseY });
-      setDragOffset({
-        x: mouseX / zoom - table.x,
-        y: mouseY / zoom - table.y,
-      });
+      if (error) throw error;
+      await updateSeatAssignments(table);
+    } catch (error) {
+      console.error('Error saving table:', error);
+      throw error;
     }
   };
 
-  const handleTouchStart = (e: React.TouchEvent, tableId: string) => {
-    e.preventDefault(); // Prevent scrolling and other default touch behaviors
-    const table = tables.find(t => t.id === tableId);
-    if (!table) return;
-
-    setSelectedTable(tableId);
-    setPendingDragTable(tableId);
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (rect && e.touches[0]) {
-      const touchX = e.touches[0].clientX - rect.left;
-      const touchY = e.touches[0].clientY - rect.top;
-      setDragStartPosition({ x: touchX, y: touchY });
-      setDragOffset({
-        x: touchX / zoom - table.x,
-        y: touchY / zoom - table.y,
-      });
-    }
-  };
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const coordinates = getEventCoordinates(e);
-    const mouseX = coordinates.clientX - rect.left;
-    const mouseY = coordinates.clientY - rect.top;
-
-    // Check if we should start dragging for a pending table
-    if (pendingDragTable && !draggedTable && dragStartPosition) {
-      const distance = Math.sqrt(
-        Math.pow(mouseX - dragStartPosition.x, 2) + 
-        Math.pow(mouseY - dragStartPosition.y, 2)
-      );
-      
-      // Start dragging if mouse moved more than 5 pixels
-      if (distance > 5) {
-        setDraggedTable(pendingDragTable);
-      }
-    }
-
-    // Continue dragging if already dragging
-    if (draggedTable) {
-      const newX = mouseX / zoom - dragOffset.x;
-      const newY = mouseY / zoom - dragOffset.y;
-
-      setTables(prev => prev.map(table => 
-        table.id === draggedTable 
-          ? { ...table, x: Math.max(50, Math.min(1950, newX)), y: Math.max(50, Math.min(1350, newY)) }
-          : table
-      ));
-    }
-  }, [draggedTable, pendingDragTable, dragStartPosition, dragOffset, zoom]);
-
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const coordinates = getEventCoordinates(e);
-    const touchX = coordinates.clientX - rect.left;
-    const touchY = coordinates.clientY - rect.top;
-
-    // Check if we should start dragging for a pending table
-    if (pendingDragTable && !draggedTable && dragStartPosition) {
-      const distance = Math.sqrt(
-        Math.pow(touchX - dragStartPosition.x, 2) + 
-        Math.pow(touchY - dragStartPosition.y, 2)
-      );
-      
-      // Start dragging if touch moved more than 5 pixels
-      if (distance > 5) {
-        setDraggedTable(pendingDragTable);
-        e.preventDefault(); // Only prevent scrolling when starting drag
-      }
-    }
-
-    // Continue dragging if already dragging
-    if (draggedTable) {
-      e.preventDefault(); // Only prevent scrolling during active drag
-      const newX = touchX / zoom - dragOffset.x;
-      const newY = touchY / zoom - dragOffset.y;
-
-      setTables(prev => prev.map(table => 
-        table.id === draggedTable 
-          ? { ...table, x: Math.max(50, Math.min(1950, newX)), y: Math.max(50, Math.min(1350, newY)) }
-          : table
-      ));
-    }
-  }, [draggedTable, pendingDragTable, dragStartPosition, dragOffset, zoom]);
-
-  // Debounced save for drag operations
-  const debouncedSave = useCallback((table: Table) => {
+  const debouncedSave = useCallback(() => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     
-    saveTimeoutRef.current = setTimeout(async () => {
-      await saveTableToDatabase(table);
-    }, 500); // Wait 500ms after drag stops before saving
-  }, []);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTablesToDatabase();
+    }, 1000);
+  }, [tables]);
 
-  const handleMouseUp = useCallback(async () => {
-    if (draggedTable) {
-      const draggedTableData = tables.find(t => t.id === draggedTable);
-      if (draggedTableData) {
-        // Use debounced save to avoid rapid saves during drag
-        debouncedSave(draggedTableData);
-      }
-    }
-    setDraggedTable(null);
-    setPendingDragTable(null);
-    setDragStartPosition(null);
-  }, [draggedTable, tables, debouncedSave]);
-
-  const handleTouchEnd = useCallback(async () => {
-    if (draggedTable) {
-      const draggedTableData = tables.find(t => t.id === draggedTable);
-      if (draggedTableData) {
-        // Use debounced save to avoid rapid saves during drag
-        debouncedSave(draggedTableData);
-      }
-    }
-    setDraggedTable(null);
-    setPendingDragTable(null);
-    setDragStartPosition(null);
-  }, [draggedTable, tables, debouncedSave]);
-
-  useEffect(() => {
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleTouchEnd);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
-
-  const exportSeatingCSV = () => {
-    const csvData = [];
-    csvData.push(['Guest Name', 'Table Number']);
-    
-    tables.forEach(table => {
-      table.seats.forEach(seat => {
-        if (seat.guestName) {
-          csvData.push([seat.guestName, table.number.toString()]);
+  const addSeat = (tableId: string) => {
+    setTables(prevTables => {
+      const newTables = prevTables.map(table => {
+        if (table.id === tableId) {
+          const newSeatIndex = table.seats.length;
+          const newSeat: Seat = {
+            id: `seat-${table.number}-${newSeatIndex}`,
+            angle: (newSeatIndex * 360) / (table.seats.length + 1),
+          };
+          
+          const updatedSeats = [...table.seats, newSeat].map((seat, index) => ({
+            ...seat,
+            angle: (index * 360) / (table.seats.length + 1)
+          }));
+          
+          const updatedTable = { ...table, seats: updatedSeats };
+          saveTableToDatabase(updatedTable).catch(console.error);
+          return updatedTable;
         }
+        return table;
       });
-    });
-    
-    const csvContent = csvData.map(row => 
-      row.map(field => `"${field.replace(/"/g, '""')}"`).join(',')
-    ).join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `seating-assignments-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    showToast({
-      title: "CSV Exported",
-      description: "Seating assignments have been exported successfully.",
+      return newTables;
     });
   };
 
-  const addSeat = async (tableId: string) => {
-    const updatedTables = tables.map(table => {
-      if (table.id === tableId && table.seats.length < 14) {
-        const newSeats = [...table.seats];
-        const newSeatId = `seat-${table.number}-${newSeats.length}`;
-        newSeats.push({
-          id: newSeatId,
-          angle: (newSeats.length * 360) / (newSeats.length + 1),
-        });
-        
-        // Redistribute angles
-        newSeats.forEach((seat, index) => {
-          seat.angle = (index * 360) / newSeats.length;
-        });
-        
-        return { ...table, seats: newSeats };
-      }
-      return table;
-    });
-    
-    setTables(updatedTables);
-    
-    // Save to database
-    const updatedTable = updatedTables.find(t => t.id === tableId);
-    if (updatedTable) {
-      await saveTableToDatabase(updatedTable);
-    }
-  };
-
-  const removeSeat = async (tableId: string) => {
-    const updatedTables = tables.map(table => {
-      if (table.id === tableId && table.seats.length > 1) {
-        const newSeats = table.seats.slice(0, -1);
-        
-        // Redistribute angles
-        newSeats.forEach((seat, index) => {
-          seat.angle = (index * 360) / newSeats.length;
-        });
-        
-        return { ...table, seats: newSeats };
-      }
-      return table;
-    });
-    
-    setTables(updatedTables);
-    
-    // Save to database
-    const updatedTable = updatedTables.find(t => t.id === tableId);
-    if (updatedTable) {
-      await saveTableToDatabase(updatedTable);
-    }
-  };
-
-  const addTable = async () => {
-    const maxNumber = Math.max(...tables.map(t => t.number));
-    const newTable = createTable(maxNumber + 1, 600, 400);
-    const updatedTables = [...tables, newTable];
-    setTables(updatedTables);
-    
-    // Save to database
-    await saveTableToDatabase(newTable);
-    toast.success('Table added');
-  };
-
-  const deleteTable = async (tableId: string) => {
-    const tableToDelete = tables.find(t => t.id === tableId);
-    if (tableToDelete) {
-      try {
-        // Setup admin context with retry logic
-        const contextSet = await setupAdminContext();
-        if (!contextSet) {
-          throw new Error('Failed to establish admin context');
+  const removeSeat = (tableId: string) => {
+    setTables(prevTables => {
+      const newTables = prevTables.map(table => {
+        if (table.id === tableId && table.seats.length > 1) {
+          const updatedSeats = table.seats.slice(0, -1).map((seat, index) => ({
+            ...seat,
+            angle: (index * 360) / (table.seats.length - 1)
+          }));
+          
+          const updatedTable = { ...table, seats: updatedSeats };
+          saveTableToDatabase(updatedTable).catch(console.error);
+          return updatedTable;
         }
-
-        // Delete from database
-        await supabase
-          .from('table_configurations')
-          .delete()
-          .eq('table_number', tableToDelete.number);
-      } catch (error) {
-        console.error('Error deleting table:', error);
-      }
-    }
-    
-    setTables(prev => prev.filter(t => t.id !== tableId));
-    setSelectedTable(null);
-    toast.success('Table deleted');
-  };
-
-  const assignSeat = async (tableId: string, seatId: string, guestName: string, tag?: string, note?: string) => {
-    console.log('assignSeat called with:', { tableId, seatId, guestName, tag, note });
-    
-    // Create backup before making changes
-    const originalTables = [...tables];
-    createBackup(originalTables);
-    
-    // Check for duplicate assignment before proceeding
-    if (guestName.trim()) {
-      const normalizedGuestName = guestName.trim().toLowerCase().replace(/\s+/g, ' ');
-      const isDuplicate = tables.some(table => 
-        table.seats.some(seat => 
-          seat.id !== seatId && 
-          seat.guestName && 
-          seat.guestName.toLowerCase().replace(/\s+/g, ' ') === normalizedGuestName
-        )
-      );
-      
-      if (isDuplicate) {
-        toast.error('Guest Already Assigned', { 
-          description: `${guestName} is already assigned to another seat.`
-        });
-        return;
-      }
-    }
-    
-    const updatedTables = tables.map(table => {
-      if (table.id === tableId) {
-        return {
-          ...table,
-          seats: table.seats.map(seat => 
-            seat.id === seatId 
-              ? { ...seat, guestName, tag, note }
-              : seat
-          )
-        };
-      }
-      return table;
+        return table;
+      });
+      return newTables;
     });
-    
-    console.log('Updated tables:', updatedTables);
-    
-    // Update state optimistically
-    setTables(updatedTables);
-    
-    // Save to database with rollback on failure
-    const updatedTable = updatedTables.find(t => t.id === tableId);
-    console.log('Found updated table for saving:', updatedTable);
-    
-    if (updatedTable) {
-      console.log('Starting save to database...');
-      try {
-        const success = await saveTableToDatabase(updatedTable);
-        if (success) {
-          console.log('Save completed successfully');
-          // Only show success toast if it's an assignment (not clearing)
-          if (guestName.trim()) {
-            toast.success('Seat assigned and saved');
-          }
-        } else {
-          console.error('Save failed - rolling back changes');
-          // Rollback to original state
-          setTables(originalTables);
-          toast.error('Failed to save seat assignment - changes rolled back');
-          return;
-        }
-      } catch (error) {
-        console.error('Error during save - rolling back changes:', error);
-        // Rollback to original state
-        setTables(originalTables);
-        toast.error('Error saving seat assignment - changes rolled back');
-        return;
-      }
-    } else {
-      console.error('Could not find updated table for saving - rolling back');
-      setTables(originalTables);
-      toast.error('Could not find table to save - changes rolled back');
-      return;
-    }
-    
-    setSelectedSeat(null);
   };
 
-  const searchGuest = (query: string) => {
-    const foundSeat = tables.find(table => 
-      table.seats.some(seat => 
-        seat.guestName?.toLowerCase().includes(query.toLowerCase())
-      )
+  const addTable = () => {
+    const maxTableNumber = Math.max(...tables.map(t => t.number), 0);
+    const newTable = createTable(
+      maxTableNumber + 1,
+      `Table ${maxTableNumber + 1}`,
+      400 + Math.random() * 200 - 100,
+      300 + Math.random() * 200 - 100
     );
     
-    if (foundSeat) {
-      setSelectedTable(foundSeat.id);
-      // Center view on the table
-      if (canvasRef.current) {
-        canvasRef.current.scrollTo({
-          left: foundSeat.x * zoom - canvasRef.current.clientWidth / 2,
-          top: foundSeat.y * zoom - canvasRef.current.clientHeight / 2,
-          behavior: 'smooth'
+    setTables(prev => [...prev, newTable]);
+    saveTableToDatabase(newTable).catch(console.error);
+  };
+
+  const deleteTable = (tableId: string) => {
+    setTables(prev => {
+      const newTables = prev.filter(t => t.id !== tableId);
+      const tableNumber = parseInt(tableId.split('-')[1]);
+      
+      // Delete from database
+      setupAdminContext().then(async () => {
+        try {
+          const { data: tableConfig } = await supabase
+            .from('table_configurations')
+            .select('id')
+            .eq('table_number', tableNumber)
+            .single();
+
+          if (tableConfig) {
+            await supabase.from('seat_assignments').delete().eq('table_configuration_id', tableConfig.id);
+            await supabase.from('table_configurations').delete().eq('id', tableConfig.id);
+          }
+        } catch (error) {
+          console.error('Error deleting table from database:', error);
+        }
+      });
+      
+      return newTables;
+    });
+    
+    if (selectedTable === tableId) {
+      setSelectedTable(null);
+      setSelectedSeat(null);
+    }
+  };
+
+  const assignSeat = async (tableId: string, seatId: string, guestName: string, tag: string, note: string) => {
+    try {
+      setTables(prevTables => {
+        const newTables = prevTables.map(table => {
+          if (table.id === tableId) {
+            const updatedSeats = table.seats.map(seat => {
+              if (seat.id === seatId) {
+                return {
+                  ...seat,
+                  guestName: guestName || undefined,
+                  tag: tag || undefined,
+                  note: note || undefined
+                };
+              }
+              return seat;
+            });
+            
+            const updatedTable = { ...table, seats: updatedSeats };
+            saveTableToDatabase(updatedTable).catch(console.error);
+            return updatedTable;
+          }
+          return table;
         });
-      }
+        return newTables;
+      });
+
+      toast("Seat Assigned", { description: `Seat assigned to ${guestName || 'guest'}.` });
+    } catch (error) {
+      console.error('Error assigning seat:', error);
+      toast("Assignment Failed", { description: "Failed to assign seat. Please try again." });
     }
   };
 
   const resetToDefault = async () => {
-    // Show confirmation dialog since this will clear all seat assignments
-    const confirmed = window.confirm(
-      "⚠️ WARNING: This will reset all tables to default layout (1-24) and PERMANENTLY DELETE all seat assignments.\n\n" +
-      "Are you sure you want to continue? This action cannot be undone."
-    );
-    
-    if (!confirmed) {
-      return;
-    }
-
     try {
       setSaveStatus('saving');
-      
-      // Create complete default layout (tables 1-24) with expanded dimensions
-      const defaultTables: Table[] = [];
-      const canvasWidth = 2000;  // Expanded dimensions
-      const canvasHeight = 1400;
-      const margin = 150;
-      
-      // Row 1: Tables 1-10 with improved spacing
-      for (let i = 1; i <= 10; i++) {
-        const x = margin + (i - 1) * ((canvasWidth - 2 * margin) / 9);
-        const y = 250;
-        defaultTables.push(createTable(i, x, y));
-      }
-      
-      // Row 2: Tables 11-20 with improved spacing
-      for (let i = 11; i <= 20; i++) {
-        const x = margin + (i - 11) * ((canvasWidth - 2 * margin) / 9);
-        const y = 650;
-        defaultTables.push(createTable(i, x, y));
-      }
-      
-      // Row 3: Tables 21-24 with improved spacing
-      for (let i = 21; i <= 24; i++) {
-        const x = margin + (canvasWidth - 2 * margin) / 4 * (i - 21) + (canvasWidth - 2 * margin) / 8;
-        const y = 1050;
-        defaultTables.push(createTable(i, x, y));
-      }
-      
+      const contextSet = await setupAdminContext();
+      if (!contextSet) throw new Error('Failed to establish admin context');
+
+      // Clear all data from database
+      await supabase.from('seat_assignments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('table_configurations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // Reset to default layout
+      const defaultTables = createDefaultLayout();
       setTables(defaultTables);
       
-      // This will now safely update tables while clearing all seat assignments (intentionally)
-      await saveTablesToDatabase(defaultTables);
+      // Save default layout to database
+      for (const table of defaultTables) {
+        await saveTableToDatabase(table);
+      }
+
+      setSelectedTable(null);
+      setSelectedSeat(null);
+      setSaveStatus('saved');
+      toast("Reset Complete", { description: "Layout reset to default and saved." });
       
-      showToast({
-        title: "Tables Reset",
-        description: "All tables restored to default layout (1-24). All seat assignments have been cleared.",
-      });
+      setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
-      console.error('Failed to reset tables:', error);
+      console.error('Error resetting layout:', error);
       setSaveStatus('error');
-      showToast({
-        title: "Reset Failed",
-        description: "Failed to reset tables to default layout",
-        variant: "destructive"
-      });
+      toast("Reset Failed", { description: "Failed to reset layout. Please try again." });
+      setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
 
@@ -1203,501 +483,501 @@ const TableManager = () => {
     link.download = 'table-layout.json';
     link.click();
     URL.revokeObjectURL(url);
-    toast.success('Layout exported');
+    toast("Layout Exported", { description: "Table layout exported successfully." });
   };
 
   const importLayout = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const imported = JSON.parse(e.target?.result as string);
-          setTables(imported);
-          
-          // Save imported layout to database
-          await saveTablesToDatabase(imported);
-          toast.success('Layout imported');
-        } catch {
-          toast.error('Invalid file format');
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target?.result as string);
+        setTables(imported);
+        saveTablesToDatabase();
+        toast("Layout Imported", { description: "Table layout imported and saved successfully." });
+      } catch (error) {
+        toast("Import Failed", { description: "Invalid file format." });
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const exportSeatingCSV = () => {
+    const csvData = [];
+    csvData.push(['Table Number', 'Table Label', 'Seat Number', 'Guest Name', 'Tag', 'Note']);
+    
+    tables.forEach(table => {
+      table.seats.forEach((seat, index) => {
+        if (seat.guestName) {
+          csvData.push([
+            table.number.toString(),
+            table.label,
+            (index + 1).toString(),
+            seat.guestName,
+            seat.tag || '',
+            seat.note || ''
+          ]);
         }
-      };
-      reader.readAsText(file);
+      });
+    });
+
+    const csvContent = csvData.map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'seating-assignments.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+    toast("Seating List Exported", { description: "Seating assignments exported to CSV." });
+  };
+
+  // Drag and drop functionality
+  const handleMouseDown = (e: React.MouseEvent, tableId: string) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    setDraggedTable(tableId);
+    
+    const table = tables.find(t => t.id === tableId);
+    if (table && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+      setDragOffset({
+        x: x - table.x,
+        y: y - table.y
+      });
     }
   };
 
-  const getSeatPosition = (table: Table, seat: Seat) => {
-    const radius = 60;
-    const angleRad = (seat.angle * Math.PI) / 180;
-    return {
-      x: table.x + radius * Math.cos(angleRad),
-      y: table.y + radius * Math.sin(angleRad),
-    };
+  const handleTouchStart = (e: React.TouchEvent, tableId: string) => {
+    e.preventDefault();
+    setDraggedTable(tableId);
+    
+    const table = tables.find(t => t.id === tableId);
+    if (table && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = (touch.clientX - rect.left) / zoom;
+      const y = (touch.clientY - rect.top) / zoom;
+      setDragOffset({
+        x: x - table.x,
+        y: y - table.y
+      });
+    }
   };
 
-  const getInitials = (name: string) => {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase();
-  };
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!draggedTable || !canvasRef.current) return;
+    
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / zoom - dragOffset.x;
+    const y = (e.clientY - rect.top) / zoom - dragOffset.y;
+    
+    setTables(prev => prev.map(table => 
+      table.id === draggedTable 
+        ? { ...table, x: Math.max(0, Math.min(800, x)), y: Math.max(0, Math.min(600, y)) }
+        : table
+    ));
+  }, [draggedTable, dragOffset, zoom]);
 
-  const selectedTableData = selectedTable ? tables.find(t => t.id === selectedTable) : null;
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!draggedTable || !canvasRef.current) return;
+    e.preventDefault();
+    
+    const rect = canvasRef.current.getBoundingClientRect();
+    const touch = e.touches[0];
+    const x = (touch.clientX - rect.left) / zoom - dragOffset.x;
+    const y = (touch.clientY - rect.top) / zoom - dragOffset.y;
+    
+    setTables(prev => prev.map(table => 
+      table.id === draggedTable 
+        ? { ...table, x: Math.max(0, Math.min(800, x)), y: Math.max(0, Math.min(600, y)) }
+        : table
+    ));
+  }, [draggedTable, dragOffset, zoom]);
+
+  const handleMouseUp = useCallback(() => {
+    if (draggedTable) {
+      debouncedSave();
+      setDraggedTable(null);
+    }
+  }, [draggedTable, debouncedSave]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (draggedTable) {
+      debouncedSave();
+      setDraggedTable(null);
+    }
+  }, [draggedTable, debouncedSave]);
+
+  useEffect(() => {
+    if (draggedTable) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+      };
+    }
+  }, [draggedTable, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
+
+  const filteredGuests = guests.filter(guest =>
+    guest.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedTableData = tables.find(t => t.id === selectedTable);
+  const selectedSeatData = selectedSeat && selectedTableData?.seats.find(s => s.id === selectedSeat.seatId);
 
   return (
     <PasswordProtection>
-      <div className="min-h-screen bg-background">
-      <div className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold">Table Seating Manager</h1>
-            <div className="flex items-center gap-2">
-              {/* Save Status Indicator */}
-              <div className="flex items-center gap-3 text-xs">
-                {/* Connection Status */}
-                <div className="flex items-center gap-1">
-                  {connectionStatus === 'connected' && (
-                    <>
-                      <div className="w-2 h-2 bg-green-500 rounded-full" />
-                      <span className="text-green-500">Connected</span>
-                    </>
-                  )}
-                  {connectionStatus === 'disconnected' && (
-                    <>
-                      <div className="w-2 h-2 bg-red-500 rounded-full" />
-                      <span className="text-red-500">Disconnected</span>
-                    </>
-                  )}
-                  {connectionStatus === 'checking' && (
-                    <>
-                      <div className="animate-spin w-2 h-2 border border-primary border-t-transparent rounded-full" />
-                      <span className="text-muted-foreground">Checking...</span>
-                    </>
-                  )}
-                </div>
-
-                {/* Save Status */}
-                <div className="flex items-center gap-1">
-                  {saveStatus === 'saving' && (
-                    <>
-                      <div className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" />
-                      <span className="text-muted-foreground">Saving...</span>
-                    </>
-                  )}
-                  {saveStatus === 'saved' && (
-                    <>
-                      <CheckCircle className="w-3 h-3 text-green-500" />
-                      <span className="text-green-500">Saved</span>
-                    </>
-                  )}
-                  {saveStatus === 'error' && (
-                    <>
-                      <AlertCircle className="w-3 h-3 text-red-500" />
-                      <span className="text-red-500">Save failed</span>
-                    </>
-                  )}
-                  {pendingSaves.size > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      ({pendingSaves.size} pending)
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              <Button asChild size="sm" variant="default">
-                <Link to="/seating-grid">
-                  <Grid3X3 className="w-4 h-4 mr-2" />
-                  View Seating Grid
-                </Link>
-              </Button>
-              {/* Emergency Recovery */}
-              {(saveStatus === 'error' || connectionStatus === 'disconnected') && (
-                <Button onClick={restoreFromBackup} variant="destructive" size="sm">
-                  <AlertCircle className="w-4 h-4 mr-2" />
-                  Restore Backup
-                </Button>
-              )}
-              
-              <Button onClick={resetToDefault} variant="outline" size="sm">
-                <RotateCcw className="w-4 h-4 mr-2" />
-                Reset Tables
-              </Button>
-              <Button onClick={addTable} size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Table
-              </Button>
-              <Button onClick={exportLayout} variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export Layout
-              </Button>
-              <Button onClick={exportSeatingCSV} variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export CSV
-              </Button>
-              <Button asChild variant="default" size="sm">
-                <Link to="/event-checkin">
-                  <Check className="w-4 h-4 mr-2" />
-                  Event Day Check In
-                </Link>
-              </Button>
-              <label className="cursor-pointer">
-                <Button variant="outline" size="sm" asChild>
-                  <span>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Import
-                  </span>
-                </Button>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={importLayout}
-                  className="hidden"
-                />
-              </label>
-            </div>
+      <div className="min-h-screen bg-background p-4">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold">Table Manager</h1>
+            <p className="text-muted-foreground">Arrange tables and assign guests to seats</p>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search guest name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && searchGuest(searchQuery)}
-                  className="pl-10"
-                />
+          <div className="flex items-center gap-2">
+            {/* Save Status Indicator */}
+            {saveStatus === 'saving' && (
+              <div className="flex items-center gap-2 text-blue-600 text-sm">
+                <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full" />
+                <span>Saving...</span>
               </div>
-            </div>
+            )}
+            {saveStatus === 'saved' && (
+              <div className="flex items-center gap-2 text-green-600 text-sm">
+                <CheckCircle className="w-4 h-4" />
+                <span>Saved</span>
+              </div>
+            )}
+            {saveStatus === 'error' && (
+              <div className="flex items-center gap-2 text-red-600 text-sm">
+                <AlertCircle className="w-4 h-4" />
+                <span>Save Failed</span>
+              </div>
+            )}
             
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}
-                variant="outline"
-                size="sm"
-              >
-                <ZoomOut className="w-4 h-4" />
+            <Link to="/seating-grid">
+              <Button variant="outline" size="sm">
+                <Grid3X3 className="w-4 h-4 mr-2" />
+                Grid View
               </Button>
-              <span className="text-sm text-muted-foreground min-w-[60px] text-center">
-                {Math.round(zoom * 100)}%
-              </span>
-              <Button
-                onClick={() => setZoom(Math.min(2, zoom + 0.1))}
-                variant="outline"
-                size="sm"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-              <Button
-                onClick={() => setZoom(1)}
-                variant="outline"
-                size="sm"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-            </div>
+            </Link>
           </div>
         </div>
-      </div>
 
-      <div className="flex h-[calc(100vh-140px)]">
-        <div className="flex-1 overflow-auto" ref={canvasRef}>
-          <div 
-            className="relative bg-muted/20"
-            style={{
-              width: '2000px',
-              height: '1400px',
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top left',
-              backgroundImage: 'url("/lovable-uploads/a3f76216-9fc3-4634-8419-d4cbdbef2e73.png")',
-              backgroundSize: 'contain',
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'center',
-            }}
-          >
-            {tables.map((table) => (
-              <div key={table.id} className="absolute">
-                {/* Table */}
-                <div
-                  className={`absolute w-20 h-20 rounded-full border-2 cursor-move flex items-center justify-center text-xs font-medium ${
-                    selectedTable === table.id
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-card text-foreground hover:border-primary/50'
-                  }`}
-                  style={{
-                    left: table.x - 40,
-                    top: table.y - 40,
-                  }}
-                  onMouseDown={(e) => handleMouseDown(e, table.id)}
-                  onTouchStart={(e) => handleTouchStart(e, table.id)}
+        {/* Controls */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <Button onClick={addTable} size="sm">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Table
+          </Button>
+          
+          <Button onClick={exportLayout} variant="outline" size="sm">
+            <Download className="w-4 h-4 mr-2" />
+            Export Layout
+          </Button>
+          
+          <Button variant="outline" size="sm" asChild>
+            <label>
+              <Upload className="w-4 h-4 mr-2" />
+              Import Layout
+              <input type="file" accept=".json" onChange={importLayout} className="hidden" />
+            </label>
+          </Button>
+          
+          <Button onClick={exportSeatingCSV} variant="outline" size="sm">
+            <Download className="w-4 h-4 mr-2" />
+            Export Seating
+          </Button>
+          
+          <Button onClick={resetToDefault} variant="outline" size="sm">
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Reset to Default
+          </Button>
+        </div>
+
+        {/* Search and Zoom Controls */}
+        <div className="flex flex-wrap gap-4 mb-4">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search guests..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-64"
+            />
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}
+            >
+              <ZoomOut className="w-4 h-4" />
+            </Button>
+            <span className="text-sm min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setZoom(Math.min(2, zoom + 0.1))}
+            >
+              <ZoomIn className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Canvas */}
+          <div className="lg:col-span-3">
+            <Card>
+              <CardContent className="p-4">
+                <div 
+                  ref={canvasRef}
+                  className="relative w-full h-[600px] bg-muted/20 rounded-lg border-2 border-dashed border-muted overflow-hidden"
+                  style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
                 >
-                  {table.number}
-                </div>
-                
-                {/* Seats */}
-                {table.seats.map((seat) => {
-                  const pos = getSeatPosition(table, seat);
-                  return (
-                    <Dialog key={seat.id}>
-                      <DialogTrigger asChild>
-                        <div
-                          className={`absolute w-8 h-8 rounded-full border-2 cursor-pointer flex items-center justify-center text-xs ${
-                            seat.guestName
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-muted-foreground bg-background hover:border-primary'
-                          }`}
-                          style={{
-                            left: pos.x - 16,
-                            top: pos.y - 16,
-                          }}
-                          title={seat.guestName || 'Empty seat'}
-                        >
-                          {seat.guestName ? getInitials(seat.guestName) : ''}
+                  {tables.map((table) => (
+                    <div
+                      key={table.id}
+                      className={`absolute cursor-move ${
+                        selectedTable === table.id ? 'ring-2 ring-primary' : ''
+                      }`}
+                      style={{
+                        left: table.x - 40,
+                        top: table.y - 40,
+                        width: 80,
+                        height: 80,
+                      }}
+                      onMouseDown={(e) => handleMouseDown(e, table.id)}
+                      onTouchStart={(e) => handleTouchStart(e, table.id)}
+                      onClick={() => setSelectedTable(table.id)}
+                    >
+                      {/* Table */}
+                      <div className="w-20 h-20 bg-background border-2 border-primary rounded-full flex items-center justify-center relative">
+                        <div className="text-center">
+                          <div className="font-semibold text-sm">{table.number}</div>
+                          <div className="text-xs text-muted-foreground">{table.seats.length} seats</div>
                         </div>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Assign Seat - Table {table.number}</DialogTitle>
-                        </DialogHeader>
-                        <SeatAssignmentForm
-                          seat={seat}
-                          guests={guests}
-                          tables={tables}
-                          onAssign={(guestName, tag, note) =>
-                            assignSeat(table.id, seat.id, guestName, tag, note)
-                          }
-                        />
-                      </DialogContent>
-                    </Dialog>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {selectedTableData && (
-          <Card className="w-80 m-4">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Table {selectedTableData.number}</CardTitle>
-                <Button
-                  onClick={() => setSelectedTable(null)}
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => removeSeat(selectedTableData.id)}
-                  variant="outline"
-                  size="sm"
-                  disabled={selectedTableData.seats.length <= 1}
-                >
-                  <Minus className="w-4 h-4" />
-                </Button>
-                <span className="text-sm">
-                  {selectedTableData.seats.length} seats
-                </span>
-                <Button
-                  onClick={() => addSeat(selectedTableData.id)}
-                  variant="outline"
-                  size="sm"
-                  disabled={selectedTableData.seats.length >= 14}
-                >
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
-              
-              <div className="space-y-2">
-                <h4 className="font-medium">Assigned Guests:</h4>
-                {selectedTableData.seats
-                  .filter(seat => seat.guestName)
-                  .map(seat => (
-                    <div key={seat.id} className="flex items-center justify-between text-sm">
-                      <span>{seat.guestName}</span>
-                      {seat.tag && <Badge variant="secondary">{seat.tag}</Badge>}
+                        
+                        {/* Seats */}
+                        {table.seats.map((seat, index) => {
+                          const seatAngle = (seat.angle * Math.PI) / 180;
+                          const seatRadius = 45;
+                          const seatX = Math.cos(seatAngle) * seatRadius;
+                          const seatY = Math.sin(seatAngle) * seatRadius;
+                          
+                          return (
+                            <div
+                              key={seat.id}
+                              className={`absolute w-3 h-3 rounded-full border cursor-pointer ${
+                                seat.guestName
+                                  ? 'bg-green-500 border-green-600'
+                                  : 'bg-background border-muted-foreground'
+                              } ${
+                                selectedSeat?.seatId === seat.id
+                                  ? 'ring-2 ring-primary'
+                                  : ''
+                              }`}
+                              style={{
+                                left: `calc(50% + ${seatX}px - 6px)`,
+                                top: `calc(50% + ${seatY}px - 6px)`,
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTable(table.id);
+                                setSelectedSeat({ tableId: table.id, seatId: seat.id });
+                              }}
+                              title={seat.guestName || `Seat ${index + 1}`}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
-                {selectedTableData.seats.every(seat => !seat.guestName) && (
-                  <p className="text-sm text-muted-foreground">No guests assigned</p>
-                )}
-              </div>
-              
-              <Button
-                onClick={() => deleteTable(selectedTableData.id)}
-                variant="destructive"
-                size="sm"
-                className="w-full"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Table
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-      
-      {/* Modi Ventures Logo Footer */}
-      <div className="border-t bg-card mt-8">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-center">
-            <div className="flex items-center space-x-4">
-              <img src="/lovable-uploads/41378f9d-db71-4814-8ea0-835eac6a7179.png" alt="Modi Ventures Logo" className="h-8 w-auto" />
-              <span className="text-lg font-medium tracking-wider text-foreground">MODI VENTURES</span>
-            </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-4">
+            {selectedTableData && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Table {selectedTableData.number}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => deleteTable(selectedTableData.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Label</label>
+                    <Input
+                      value={selectedTableData.label}
+                      onChange={(e) => {
+                        const newLabel = e.target.value;
+                        setTables(prev => prev.map(table => 
+                          table.id === selectedTableData.id 
+                            ? { ...table, label: newLabel }
+                            : table
+                        ));
+                        debouncedSave();
+                      }}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Seats: {selectedTableData.seats.length}</span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeSeat(selectedTableData.id)}
+                        disabled={selectedTableData.seats.length <= 1}
+                      >
+                        <Minus className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addSeat(selectedTableData.id)}
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Seat Assignments</label>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {selectedTableData.seats.map((seat, index) => (
+                        <div
+                          key={seat.id}
+                          className={`p-2 rounded-md border cursor-pointer ${
+                            selectedSeat?.seatId === seat.id
+                              ? 'border-primary bg-primary/10'
+                              : 'border-muted'
+                          }`}
+                          onClick={() => setSelectedSeat({ tableId: selectedTableData.id, seatId: seat.id })}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">Seat {index + 1}</span>
+                            {seat.guestName && (
+                              <Badge variant="secondary" className="text-xs">
+                                {seat.guestName}
+                              </Badge>
+                            )}
+                          </div>
+                          {seat.tag && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Tag: {seat.tag}
+                            </div>
+                          )}
+                          {seat.note && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Note: {seat.note}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedSeatData && (
+                    <div className="border-t pt-4">
+                      <SeatAssignmentForm
+                        seat={selectedSeatData}
+                        guests={filteredGuests}
+                        onAssign={(guestName, tag, note) => 
+                          assignSeat(selectedTableData.id, selectedSeatData.id, guestName, tag, note)
+                        }
+                        allTables={tables}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
-      </div>
       </div>
     </PasswordProtection>
   );
 };
 
-const SeatAssignmentForm = ({
-  seat,
-  guests,
-  onAssign,
-  tables,
-}: {
+// Seat Assignment Form Component
+interface SeatAssignmentFormProps {
   seat: Seat;
   guests: Guest[];
-  onAssign: (guestName: string, tag?: string, note?: string) => void;
-  tables: Table[];
-}) => {
+  onAssign: (guestName: string, tag: string, note: string) => void;
+  allTables: Table[];
+}
+
+const SeatAssignmentForm: React.FC<SeatAssignmentFormProps> = ({ seat, guests, onAssign, allTables }) => {
   const [selectedGuest, setSelectedGuest] = useState(seat.guestName || '');
-  const [customName, setCustomName] = useState('');
+  const [useCustomName, setUseCustomName] = useState(!guests.find(g => g.name === seat.guestName));
+  const [customName, setCustomName] = useState(seat.guestName || '');
   const [tag, setTag] = useState(seat.tag || '');
   const [note, setNote] = useState(seat.note || '');
-  const [useCustomName, setUseCustomName] = useState(false);
-  const [assignedGuestNames, setAssignedGuestNames] = useState<Set<string>>(new Set());
-  const [dbSyncLoading, setDbSyncLoading] = useState(false);
-
-  // Normalize names for comparison
-  const normalizeName = (name: string) => {
-    return name.trim().toLowerCase().replace(/\s+/g, ' ');
-  };
-
-  // Get assigned guests from in-memory data (immediate, reliable)
-  const getInMemoryAssignedGuests = () => {
-    const names = new Set<string>();
-    tables.forEach(table => {
-      table.seats.forEach(tableSeat => {
-        if (tableSeat.guestName && tableSeat.id !== seat.id) {
-          names.add(normalizeName(tableSeat.guestName));
-        }
-      });
-    });
-    return names;
-  };
-
-  // Sync with database in background to catch any missed assignments
-  useEffect(() => {
-    const syncWithDatabase = async () => {
-      try {
-        setDbSyncLoading(true);
-        
-        await supabase.rpc('set_config', {
-          setting_name: 'app.current_user_email',
-          setting_value: 'admincode@modivc.com'
-        });
-
-        const { data, error } = await supabase
-          .from('seat_assignments')
-          .select('guest_name')
-          .not('guest_name', 'is', null);
-
-        if (!error && data) {
-          const dbNames = new Set<string>();
-          data.forEach(assignment => {
-            if (assignment.guest_name) {
-              dbNames.add(normalizeName(assignment.guest_name));
-            }
-          });
-          
-          // Combine database and in-memory assigned guests
-          const inMemoryNames = getInMemoryAssignedGuests();
-          const combinedNames = new Set([...dbNames, ...inMemoryNames]);
-          setAssignedGuestNames(combinedNames);
-        } else {
-          // Fallback to in-memory data if database query fails
-          setAssignedGuestNames(getInMemoryAssignedGuests());
-        }
-      } catch (error) {
-        console.error('Database sync failed, using in-memory data:', error);
-        setAssignedGuestNames(getInMemoryAssignedGuests());
-      } finally {
-        setDbSyncLoading(false);
-      }
-    };
-
-    // Start with in-memory data immediately for fast rendering
-    setAssignedGuestNames(getInMemoryAssignedGuests());
-    
-    // Then sync with database in background
-    syncWithDatabase();
-  }, [seat.id, tables]);
-
-  // Filter guests to show only unassigned ones
-  const availableGuests = guests.filter(guest => 
-    !assignedGuestNames.has(normalizeName(guest.name))
-  );
 
   const handleSubmit = () => {
-    const guestName = useCustomName ? customName : selectedGuest;
-    if (!guestName.trim()) {
-      toast("Please select or enter a guest name", { 
-        description: "A guest name is required to assign the seat."
-      });
-      return;
-    }
-
-    // Check for duplicate assignment one more time before submitting
-    const normalizedGuestName = normalizeName(guestName);
-    if (assignedGuestNames.has(normalizedGuestName)) {
-      toast("Guest Already Assigned", { 
-        description: `${guestName} is already assigned to another seat. Please check the seating chart.`,
-        duration: 5000
-      });
-      return;
-    }
-
-    // Proceed with assignment
-    onAssign(guestName.trim(), tag.trim() || undefined, note.trim() || undefined);
-    toast("Seat Assigned Successfully", { 
-      description: `${guestName} has been assigned to the seat.`
-    });
+    const guestName = useCustomName ? customName.trim() : selectedGuest;
+    onAssign(guestName, tag, note);
   };
+
+  // Check for duplicate assignments
+  const assignedGuestNames = new Set<string>();
+  allTables.forEach(table => {
+    table.seats.forEach(seatItem => {
+      if (seatItem.guestName && seatItem.id !== seat.id) {
+        assignedGuestNames.add(seatItem.guestName.toLowerCase().trim());
+      }
+    });
+  });
+
+  const currentGuestName = useCustomName ? customName.trim() : selectedGuest;
+  const isDuplicate = currentGuestName && assignedGuestNames.has(currentGuestName.toLowerCase().trim());
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Guest</label>
+      <h4 className="text-sm font-medium">Assign Guest</h4>
+      
+      <div className="space-y-3">
         <div className="space-y-2">
-          <Select
-            value={useCustomName ? '' : selectedGuest}
-            onValueChange={(value) => {
-              setSelectedGuest(value);
-              setUseCustomName(false);
-            }}
-            disabled={useCustomName}
-          >
+          <Select value={selectedGuest} onValueChange={setSelectedGuest} disabled={useCustomName}>
             <SelectTrigger>
-              <SelectValue placeholder="Select a registered guest" />
+              <SelectValue placeholder="Select a guest" />
             </SelectTrigger>
             <SelectContent>
-              {availableGuests.length === 0 ? (
-                <SelectItem value="" disabled>No unassigned guests available</SelectItem>
-              ) : (
-                availableGuests.map((guest) => (
-                  <SelectItem key={guest.id} value={guest.name}>
-                    {guest.name} {guest.type === 'guest' && '(Guest)'}
-                  </SelectItem>
-                ))
-              )}
+              {guests.map((guest) => (
+                <SelectItem key={guest.id} value={guest.name}>
+                  <div className="flex items-center gap-2">
+                    <span>{guest.name}</span>
+                    <Badge variant={guest.type === 'invited' ? 'default' : 'secondary'} className="text-xs">
+                      {guest.type}
+                    </Badge>
+                  </div>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           
@@ -1740,10 +1020,7 @@ const SeatAssignmentForm = ({
         />
       </div>
 
-      {/* Warning for duplicate assignment */}
-      {((useCustomName && customName.trim()) || (!useCustomName && selectedGuest)) && (
-        assignedGuestNames.has(normalizeName(useCustomName ? customName : selectedGuest))
-      ) && (
+      {isDuplicate && (
         <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md">
           <div className="flex items-center gap-2 text-destructive text-sm">
             <AlertCircle className="w-4 h-4" />
@@ -1752,20 +1029,11 @@ const SeatAssignmentForm = ({
         </div>
       )}
 
-      {/* Loading indicator for database sync */}
-      {dbSyncLoading && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" />
-          <span>Checking for conflicts...</span>
-        </div>
-      )}
-
       <div className="flex gap-2">
         <Button 
           onClick={handleSubmit} 
           className="flex-1"
-          disabled={((useCustomName && customName.trim()) || (!useCustomName && selectedGuest)) && 
-                   assignedGuestNames.has(normalizeName(useCustomName ? customName : selectedGuest))}
+          disabled={isDuplicate}
         >
           Assign Seat
         </Button>
